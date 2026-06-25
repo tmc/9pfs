@@ -42,7 +42,7 @@ FSKit extension enabled in System Settings, and no active 9pfs mounts.
 
 ```sh
 ./preflight-installed.sh
-./test-installed-live-9p2000l.sh "$HOME/9pfs-mnt-$(date +%s)"
+./test-installed.sh "$HOME/9pfs-mnt-$(date +%s)"
 ```
 
 Expected final line:
@@ -51,17 +51,11 @@ Expected final line:
 9pfs: installed FSKit mount read/write/rename/chmod/mtime/truncate/link/xattr/remove ok
 ```
 
-The installed scripts refuse to run while another 9pfs mount is active. Override
+The installed gate refuses to run while another 9pfs mount is active. Override
 only for an explicit probe window:
 
 ```sh
-NINEPFS_ALLOW_ACTIVE_MOUNTS=yes ./test-installed-live-9p2000l.sh
-```
-
-For a read-only demonstration of an already-active mount:
-
-```sh
-./show-live-mount.sh
+NINEPFS_ALLOW_ACTIVE_MOUNTS=yes ./test-installed.sh "$HOME/9pfs-mnt-$(date +%s)"
 ```
 
 ## Research

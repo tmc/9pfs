@@ -150,20 +150,23 @@ This runs shell/plist lint, `go vet`, `go test` (including `TestFSKitSmoke`,
 which drives the FSKit callbacks against an in-memory tree), classic and `.L`
 live 9P checks, and the default bundle assembly.
 
-The live checks start disposable servers and exercise the real client:
+The live check (`TestLive`, driven by `test-live.sh`) starts a disposable
+server per dialect and exercises the real backend:
 
 ```sh
-./test-live-9p2000.sh     # classic 9P2000 via 9fans.net/go
-./test-live-9p2000l.sh    # 9P2000.L via github.com/hugelgupf/p9
+./test-live.sh            # both dialects
+./test-live.sh 9p2000     # classic 9P2000 via knusbaum/go9p export9p
+./test-live.sh 9p2000l    # 9P2000.L via the patched github.com/hugelgupf/p9 p9ufs
 ```
 
-These scripts patch a temporary copy of `github.com/hugelgupf/p9@v0.4.1`: its
-`p9ufs` server localfs ignores chmod and does not honor mtime, and its client
-xattr methods return `ENOSYS`. The patch adds server-side chmod/mtime and a
-client xattr implementation so the FSKit path is exercised rather than stopping
-at the test server. It is local to the build and does not change module
-dependencies. (The earlier Darwin compile fix this once carried is now upstream
-in v0.4.1, so the patch is two hunks rather than three.)
+For 9P2000.L the script patches a temporary copy of
+`github.com/hugelgupf/p9@v0.4.1`: its `p9ufs` server localfs ignores chmod and
+does not honor mtime, and its client xattr methods return `ENOSYS`. The patch
+adds server-side chmod/mtime and a client xattr implementation so the FSKit path
+is exercised rather than stopping at the test server. It is local to the build
+and does not change module dependencies. (The earlier Darwin compile fix this
+once carried is now upstream in v0.4.1, so the patch is two hunks rather than
+three.)
 
 See `FEATURES.md` for the supported/unsupported operation matrix and
 `READINESS.md` for verification state.
@@ -177,7 +180,9 @@ CODESIGN_IDENTITY='Apple Development: Your Name (TEAMID)' \
 NINEPFS_REQUIRE_PROFILES=yes \
 ./build-appex.sh /tmp/9pfs-build
 ./verify-signed-build.sh /tmp/9pfs-build
-./install-local.sh /tmp/9pfs-build      # prints commands; copies only with CONFIRM_9PFS_INSTALL=yes
+
+sudo cp -R /tmp/9pfs-build/NinePFSHost.app /Applications/NinePFSHost.app
+open /Applications/NinePFSHost.app       # registers the extension
 ```
 
 Signing needs development provisioning profiles whose application identifiers
@@ -247,20 +252,15 @@ Notarization credentials resolve from `NINEPFS_NOTARY_PROFILE` (a
 
 ```sh
 ./preflight-installed.sh
-./test-installed-live-9p2000l.sh "$HOME/9pfs-mnt-$(date +%s)"
+./test-installed.sh "$HOME/9pfs-mnt-$(date +%s)"          # disposable server
+./test-installed.sh 'ninep://host:5640?dialect=9p2000l' "$mnt"   # your own server
 ```
 
-The gate starts a disposable 9P2000.L server, mounts it with
-`/sbin/mount -F -t 9pfs`, and verifies mounted directory listing, read, write,
-rename, truncate, chmod, mtime, symlink, hardlink, xattr, and remove. It
-refuses to run while another 9pfs mount is active unless
+The gate starts a disposable 9P2000.L server (or mounts the URL you pass),
+mounts it with `/sbin/mount -F -t 9pfs`, and verifies mounted directory listing,
+read, write, rename, truncate, chmod, mtime, symlink, hardlink, xattr, and
+remove. It refuses to run while another 9pfs mount is active unless
 `NINEPFS_ALLOW_ACTIVE_MOUNTS=yes` is set.
-
-To inspect an already-mounted volume read-only:
-
-```sh
-./show-live-mount.sh /path/to/active/9pfs-mount
-```
 
 ## Notes
 

@@ -49,7 +49,7 @@ Installed macOS mount gate:
 
 ```sh
 ./preflight-installed.sh
-./test-installed-live-9p2000l.sh "$HOME/9pfs-mnt-$(date +%s)"
+./test-installed.sh "$HOME/9pfs-mnt-$(date +%s)"
 ```
 
 The installed gate starts a disposable 9P2000.L server and mounts it through
