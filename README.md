@@ -79,7 +79,9 @@ open /Applications/NinePFSHost.app             # registers the extension
 ```
 
 Then enable the extension in System Settings > General > Login Items &
-Extensions > File System Extensions, and mount:
+Extensions > File System Extensions. The host app shows the module's live
+enabled/disabled status and re-checks it when you return to the app or click
+Refresh, so you can confirm the toggle took effect before mounting:
 
 ```sh
 /sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' /path/to/mountpoint
