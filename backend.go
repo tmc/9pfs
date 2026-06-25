@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -87,6 +88,26 @@ func dial9P(network, addr, aname string) (*ninePBackend, error) {
 		return nil, err
 	}
 	return &ninePBackend{fs: fs}, nil
+}
+
+func mount9P(network, addr, aname string) (*client.Fsys, error) {
+	if aname == "" {
+		fs, err := client.Mount(network, addr)
+		if err != nil {
+			return nil, fmt.Errorf("mount 9p %s %s: %w", network, addr, err)
+		}
+		return fs, nil
+	}
+	conn, err := client.Dial(network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("dial 9p %s %s: %w", network, addr, err)
+	}
+	fs, err := conn.Attach(nil, os.Getenv("USER"), aname)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("attach 9p aname %q: %w", aname, err)
+	}
+	return fs, nil
 }
 
 func (b *ninePBackend) Close() error {

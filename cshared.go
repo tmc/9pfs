@@ -1,4 +1,4 @@
-//go:build darwin && cshared && !ninepfs_stubgo
+//go:build darwin && cshared
 
 package main
 
