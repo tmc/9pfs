@@ -48,6 +48,34 @@ The Go side builds as a c-archive that exports `NinePFSInit` and
 `NinePFSConfigureFileSystem`; the Swift executable links it and calls them
 before `UnaryFileSystemExtension.main()`.
 
+## Download and mount (notarized release)
+
+A notarized Developer ID build runs on any Mac without rebuilding or
+registering a device. Download `NinePFSHost-<version>.zip` from the releases,
+verify it, and install:
+
+```sh
+shasum -a 256 -c NinePFSHost-<version>.zip.sha256
+ditto -x -k NinePFSHost-<version>.zip .
+# Gatekeeper accepts it offline (the notarization ticket is stapled):
+spctl -a -vvv --type install NinePFSHost.app   # source=Notarized Developer ID
+
+sudo cp -R NinePFSHost.app /Applications/NinePFSHost.app
+open /Applications/NinePFSHost.app             # registers the extension
+```
+
+Then enable the extension in System Settings > General > Login Items &
+Extensions > File System Extensions, and mount:
+
+```sh
+/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' /path/to/mountpoint
+```
+
+The install (`sudo`) and the System Settings toggle are one-time, interactive
+steps macOS requires for any third-party file-system extension. The release is
+signed by its publisher's team; to ship under your own team, rebuild and
+notarize with the commands under "Distribution" below.
+
 ## Simplest path to a mount
 
 ```sh
@@ -166,6 +194,58 @@ profiles from `~/Library/MobileDevice/Provisioning Profiles`.
 Settings. Direct FSKit mounts use `/sbin/mount -F -t 9pfs` and do not need the
 `.fs` bundle; install it under `/Library/Filesystems/9pfs.fs` only for plain
 `mount -t 9pfs`.
+
+The development build above is signed with an Apple Development identity and a
+device-locked profile — fine for local testing on a registered Mac, but it will
+not launch elsewhere. To produce a build that runs on any Mac, use the
+Developer ID path below.
+
+## Distribution (notarized Developer ID build)
+
+`release.sh` produces the downloadable artifact: a Developer ID build, notarized
+and stapled, packaged as a zip with a checksum.
+
+```sh
+CODESIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+  ./release.sh v0.1.0
+```
+
+It runs three steps, gating each outward-facing one:
+
+  - `build-appex.sh` in **Developer ID mode** (`NINEPFS_DEVID=yes`): hardened
+    runtime, a real timestamp, and the Developer ID Application signature.
+  - `notarize-build.sh`: upload to Apple's notary service and staple the ticket
+    (set `CONFIRM_9PFS_NOTARIZE=yes`).
+  - package the stapled app and write its SHA-256 checksum; optionally
+    `gh release create` (set `CONFIRM_9PFS_PUBLISH=yes` with a git remote).
+
+Developer ID mode differs from the development build in two ways that matter,
+both enforced by the scripts:
+
+  - **Cert ↔ profile match.** The embedded provisioning profile
+    (`MAC_APP_DIRECT`, granting `com.apple.developer.fskit.fsmodule`) must embed
+    the same certificate `CODESIGN_IDENTITY` signs with. `build-appex.sh`
+    compares SHA-1 fingerprints up front and refuses a mismatch — otherwise AMFI
+    rejects the extension at launch with `-413 "No matching profile found"`. Pass
+    profiles with `NINEPFS_EXTENSION_PROFILE` / `NINEPFS_HOST_PROFILE`, or let
+    the script auto-discover them. To generate a matching profile:
+
+    ```sh
+    asc certs list -o wide        # find the DEVELOPER_ID_APPLICATION cert id you hold
+    asc bundles list -o wide      # find the App ID resource ids
+    asc profiles create --type MAC_APP_DIRECT --bundle <id> --certs <cert-id>
+    asc profiles download <profile-id> -o out.provisionprofile
+    ```
+
+  - **Static minimal entitlements.** Developer ID mode signs with the
+    repository's static entitlements, not the profile's keychain/team boilerplate
+    — a sandboxed Developer ID binary cannot satisfy `keychain-access-groups` or
+    `team-identifier`, and AMFI would reject it at launch.
+
+Notarization credentials resolve from `NINEPFS_NOTARY_PROFILE` (a
+`notarytool store-credentials` keychain profile) or an App Store Connect API key
+(`NINEPFS_ASC_KEY_ID` / `NINEPFS_ASC_ISSUER_ID` / `NINEPFS_ASC_KEY_PATH`, else
+`~/.appstoreconnect/config.yaml` and `~/.appstoreconnect/private_keys/`).
 
 ## Installed mount gate
 

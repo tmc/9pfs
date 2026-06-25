@@ -13,6 +13,19 @@ set -euo pipefail
 # profile must grant com.apple.developer.fskit.fsmodule. Matching profiles are
 # auto-discovered from ~/Library/MobileDevice/Provisioning Profiles; set
 # NINEPFS_REQUIRE_PROFILES=yes to fail early when they are missing.
+#
+# Two signing styles:
+#
+#   development (default) — Apple Development identity, ad-hoc timestamp, no
+#     hardened runtime. For local installed tests on a registered device.
+#
+#   developer-id (NINEPFS_DEVID=yes) — Developer ID Application identity, real
+#     RFC3161 timestamp, hardened runtime. The embedded profile must be a
+#     Developer ID profile (MAC_APP_DIRECT) whose certificate matches
+#     CODESIGN_IDENTITY; the script verifies the match up front. Sign with the
+#     repository's static minimal entitlements, NOT the profile's keychain/team
+#     boilerplate, or AMFI rejects the sandboxed binary at launch. The resulting
+#     build is the input to notarize-build.sh.
 
 dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scriptlib.sh
@@ -26,6 +39,11 @@ identity=${CODESIGN_IDENTITY:-}
 extension_profile=${NINEPFS_EXTENSION_PROFILE:-}
 host_profile=${NINEPFS_HOST_PROFILE:-}
 require_profiles=${NINEPFS_REQUIRE_PROFILES:-}
+if [[ "${NINEPFS_DEVID:-}" == yes ]]; then
+	signing_style=developer-id
+else
+	signing_style=development
+fi
 
 bundle=$out/$product.appex
 fsbundle=$out/9pfs.fs
@@ -95,6 +113,20 @@ ensure_array_string_entitlement() {
 	fi
 }
 
+verify_profile_app_id() {
+	local profile=$1
+	local want_bundle_id=$2
+	local plist app_id
+	plist=$(mktemp)
+	security cms -D -i "$profile" >"$plist" 2>/dev/null
+	app_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$plist" 2>/dev/null || true)
+	rm -f "$plist"
+	if [[ -z "$app_id" || "${app_id#*.}" != "$want_bundle_id" ]]; then
+		echo "provisioning profile $profile has application identifier ${app_id:-<none>}, want *.$want_bundle_id" >&2
+		exit 1
+	fi
+}
+
 prepare_entitlements() {
 	local profile=$1
 	local base=$2
@@ -102,15 +134,19 @@ prepare_entitlements() {
 	local role=$4
 	local want_bundle_id=$5
 
+	# Developer ID builds embed the profile (it carries the restricted
+	# fskit.fsmodule grant) but sign with the static minimal entitlements: a
+	# sandboxed Developer-ID binary cannot satisfy the keychain-access-groups /
+	# team-identifier that a profile's entitlements carry, and AMFI rejects it
+	# at launch (-413) if it tries. Development builds without a profile also
+	# use the static entitlements; only a development build *with* a profile
+	# inherits the profile's entitlements (the device-locked dev flow).
 	if [[ -n "$profile" ]]; then
 		[[ -f "$profile" ]] || { echo "missing provisioning profile: $profile" >&2; exit 1; }
+		verify_profile_app_id "$profile" "$want_bundle_id"
+	fi
+	if [[ -n "$profile" && "$signing_style" == development ]]; then
 		profile_entitlements "$profile" "$entitlements"
-		local app_id
-		app_id=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.application-identifier' "$entitlements" 2>/dev/null || true)
-		if [[ -z "$app_id" || "${app_id#*.}" != "$want_bundle_id" ]]; then
-			echo "provisioning profile $profile has application identifier ${app_id:-<none>}, want *.$want_bundle_id" >&2
-			exit 1
-		fi
 	else
 		cp "$base" "$entitlements"
 	fi
@@ -138,6 +174,12 @@ if [[ -n "$identity" ]]; then
 	fi
 fi
 
+if [[ "$signing_style" == developer-id ]]; then
+	# A Developer ID build is meaningless without a profile carrying the
+	# restricted fskit.fsmodule grant and the cert it is signed with.
+	require_profiles=yes
+fi
+
 if [[ "$require_profiles" == yes ]]; then
 	[[ -n "$extension_profile" ]] || {
 		echo "missing matching extension profile for $bundle_id with com.apple.developer.fskit.fsmodule" >&2
@@ -148,6 +190,29 @@ if [[ "$require_profiles" == yes ]]; then
 		exit 1
 	}
 fi
+
+if [[ "$signing_style" == developer-id ]]; then
+	[[ -n "$identity" ]] || { echo "developer-id mode needs CODESIGN_IDENTITY" >&2; exit 1; }
+	# Fail now on the cert<->profile mismatch rather than at AMFI launch.
+	require_cert_in_profile "$identity" "$extension_profile"
+	require_cert_in_profile "$identity" "$host_profile"
+fi
+
+# codesign_bundle signs $1 with the active style, applying the entitlements in
+# $2. Development uses an ad-hoc timestamp and no hardened runtime (device-locked
+# dev flow); developer-id uses a real RFC3161 timestamp and the hardened runtime,
+# both required for notarization.
+codesign_bundle() {
+	local target=$1
+	local entitlements=$2
+	if [[ "$signing_style" == developer-id ]]; then
+		codesign --force --timestamp --options runtime \
+			--entitlements "$entitlements" --sign "$identity" "$target"
+	else
+		codesign --force --timestamp=none \
+			--entitlements "$entitlements" --sign "$identity" "$target"
+	fi
+}
 
 # Build the Go filesystem operations as a c-archive. The cshared build tag
 # exports NinePFSInit/NinePFSConfigureFileSystem/NinePFS*Resource for the Swift
@@ -218,9 +283,8 @@ if [[ -n "$extension_profile" ]]; then
 fi
 
 if [[ -n "$identity" ]]; then
-	codesign --force --timestamp=none --sign "$identity" "$macos/$product"
-	codesign --force --timestamp=none --sign "$identity" \
-		--entitlements "$extension_entitlements" "$bundle"
+	codesign_bundle "$macos/$product" "$extension_entitlements"
+	codesign_bundle "$bundle" "$extension_entitlements"
 fi
 
 # The 9pfs.fs mount-helper bundle is only needed for plain `mount -t 9pfs`;
@@ -250,8 +314,11 @@ if [[ -n "$host_profile" ]]; then
 	cp "$host_profile" "$app/Contents/embedded.provisionprofile"
 fi
 if [[ -n "$identity" ]]; then
-	codesign --force --timestamp=none --sign "$identity" \
-		--entitlements "$host_entitlements" "$app"
+	# Sign the embedded extension first (codesign signs inside-out), then the
+	# host app, so the host's seal covers the already-sealed extension.
+	codesign_bundle "$app/Contents/Extensions/$product.appex/Contents/MacOS/$product" "$extension_entitlements"
+	codesign_bundle "$app/Contents/Extensions/$product.appex" "$extension_entitlements"
+	codesign_bundle "$app" "$host_entitlements"
 fi
 
 echo "$bundle"
