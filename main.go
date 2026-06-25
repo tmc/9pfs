@@ -12,7 +12,7 @@ import (
 	"9fans.net/go/plan9/client"
 )
 
-func cliMain() {
+func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
