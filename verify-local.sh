@@ -19,9 +19,8 @@ done
 GOWORK=off go vet ./...
 GOWORK=off go test ./... -count=1
 
-# Live 9P client operations against disposable servers.
-./test-live-9p2000.sh
-./test-live-9p2000l.sh
+# Live backend operations against a disposable server (both dialects).
+./test-live.sh
 
 # Default extension/bundle assembly.
 ./build-appex.sh "$build_dir"
