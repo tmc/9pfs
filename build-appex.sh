@@ -249,14 +249,14 @@ rm -f "${go_archive%.a}.h"
 
 # Compile the ObjC NinePFileSystem class and the Swift @main entrypoint, and
 # link them with the Go archive into the extension executable.
-header=$dir/swiftshim/Sources/NinePFSShimObjC/include/NinePFileSystem.h
-objc_source=$dir/swiftshim/Sources/NinePFSShimObjC/NinePFileSystem.m
+header=$dir/appex/NinePFileSystem.h
+objc_source=$dir/appex/NinePFileSystem.m
 objc_object=$objdir/NinePFileSystem.o
 swift_target=${NINEPFS_SWIFT_TARGET:-$(uname -m)-apple-macos15.4}
 
 xcrun clang -fobjc-arc -fmodules \
 	-target "$swift_target" \
-	-I "$dir/swiftshim/Sources/NinePFSShimObjC/include" \
+	-I "$dir/appex" \
 	-c "$objc_source" -o "$objc_object"
 xcrun swiftc -O -parse-as-library \
 	-target "$swift_target" \
