@@ -56,16 +56,7 @@ func run() error {
 	flag.StringVar(&getXattrPath, "getxattr", "", "get an extended attribute from this path")
 	flag.StringVar(&listXattrPath, "listxattr", "", "list extended attributes on this path")
 	flag.StringVar(&removeXattrPath, "rmxattr", "", "remove an extended attribute from this path")
-	fskitSmokeFlag := flag.Bool("fskit-smoke", false, "exercise FSKit volume callbacks with an in-memory 9p tree")
-	extensionMainProbeFlag := flag.Bool("extension-main-probe", false, "verify the Swift FSKit entrypoint shim without entering ExtensionFoundation main")
 	flag.Parse()
-
-	if *extensionMainProbeFlag {
-		return extensionMainProbe()
-	}
-	if *fskitSmokeFlag {
-		return fskitSmoke()
-	}
 
 	fs, err := dialBackend(dialect, network, addr, aname)
 	if err != nil {

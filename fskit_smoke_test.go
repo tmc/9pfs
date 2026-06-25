@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"sort"
 	"syscall"
+	"testing"
 	"unsafe"
 
 	"9fans.net/go/plan9"
@@ -276,12 +277,18 @@ func bytesFromNSData(id objc.ID) []byte {
 	return out
 }
 
-func fskitSmoke() error {
+// TestFSKitSmoke drives the FSKit volume callbacks end to end against an
+// in-memory 9p tree: probe, load, activate, lookup, stat, symlink, hardlink,
+// create, read, write, xattr, setattr, mtime, preallocate, rename, and remove.
+// It exercises the bridge wiring without a live server.
+func TestFSKitSmoke(t *testing.T) {
 	var err error
 	objc.AutoreleasePool(func() {
 		err = fskitSmokeInPool()
 	})
-	return err
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func fskitSmokeInPool() error {
@@ -667,7 +674,5 @@ func fskitSmokeInPool() error {
 		return callbackErr
 	}
 
-	fmt.Println("9pfs: fskit smoke ok")
-	fmt.Println("9pfs: mapped 9p lookup, stat, symlink, hardlink, create, read, write, xattr, setattr, mtime, rename, and remove through FSKit callbacks")
 	return nil
 }
