@@ -224,7 +224,7 @@ modfile=$moddir/go.mod
 go_archive=$objdir/libNinePFS.a
 mkdir -p "$moddir"
 
-"$dir/prepare-p9-module.sh" "$p9src"
+prepare_p9_module "$p9src"
 # Carry go.mod through verbatim, but resolve any relative apple replace target
 # to an absolute path: the temp modfile lives in a scratch dir where a relative
 # "../.." would no longer point at the monorepo. A pinned require (no replace,
@@ -249,14 +249,14 @@ rm -f "${go_archive%.a}.h"
 
 # Compile the ObjC NinePFileSystem class and the Swift @main entrypoint, and
 # link them with the Go archive into the extension executable.
-header=$dir/appex/NinePFileSystem.h
-objc_source=$dir/appex/NinePFileSystem.m
+header=$dir/native/appex/NinePFileSystem.h
+objc_source=$dir/native/appex/NinePFileSystem.m
 objc_object=$objdir/NinePFileSystem.o
 swift_target=${NINEPFS_SWIFT_TARGET:-$(uname -m)-apple-macos15.4}
 
 xcrun clang -fobjc-arc -fmodules \
 	-target "$swift_target" \
-	-I "$dir/appex" \
+	-I "$dir/native/appex" \
 	-c "$objc_source" -o "$objc_object"
 xcrun swiftc -O -parse-as-library \
 	-target "$swift_target" \
@@ -265,7 +265,7 @@ xcrun swiftc -O -parse-as-library \
 	-framework ExtensionFoundation \
 	-framework FSKit \
 	-import-objc-header "$header" \
-	"$dir/appex/NinePFSExtension.swift" "$objc_object" "$go_archive" \
+	"$dir/native/appex/NinePFSExtension.swift" "$objc_object" "$go_archive" \
 	-Xlinker -e -Xlinker _NSExtensionMain \
 	-Xlinker -rpath -Xlinker @executable_path/../Frameworks \
 	-o "$macos/$product"
@@ -275,9 +275,9 @@ xcrun swiftc -O -parse-as-library \
 	-e "s/\$(PRODUCT_NAME)/$product/g" \
 	-e "s/\$(EXECUTABLE_NAME)/$product/g" \
 	-e "s/\$(DEVELOPMENT_LANGUAGE)/en/g" \
-	"$dir/appex/Info.plist" > "$contents/Info.plist"
+	"$dir/native/appex/Info.plist" > "$contents/Info.plist"
 
-prepare_entitlements "$extension_profile" "$dir/appex/NinePFSExtension.entitlements" "$extension_entitlements" extension "$bundle_id"
+prepare_entitlements "$extension_profile" "$dir/native/appex/NinePFSExtension.entitlements" "$extension_entitlements" extension "$bundle_id"
 if [[ -n "$extension_profile" ]]; then
 	cp "$extension_profile" "$contents/embedded.provisionprofile"
 fi
@@ -290,8 +290,8 @@ fi
 # The 9pfs.fs mount-helper bundle is only needed for plain `mount -t 9pfs`;
 # direct `/sbin/mount -F -t 9pfs` does not use it.
 mkdir -p "$fsbundle/Contents/Resources"
-cp "$dir/fsbundle/Info.plist" "$fsbundle/Contents/Info.plist"
-cp "$dir/mounthelper/mount_9pfs" "$fsbundle/Contents/Resources/mount_9pfs"
+cp "$dir/native/fsbundle/Info.plist" "$fsbundle/Contents/Info.plist"
+cp "$dir/native/mounthelper/mount_9pfs" "$fsbundle/Contents/Resources/mount_9pfs"
 chmod +x "$fsbundle/Contents/Resources/mount_9pfs"
 
 # Build the host app and embed the extension under Contents/Extensions.
@@ -301,15 +301,15 @@ xcrun swiftc -O -parse-as-library \
 	-application-extension \
 	-framework FSKit \
 	-framework SwiftUI \
-	"$dir/host/App.swift" \
+	"$dir/native/host/App.swift" \
 	-o "$app/Contents/MacOS/$host_product"
 /usr/bin/sed \
 	-e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$host_bundle_id/g" \
 	-e "s/\$(PRODUCT_NAME)/$host_product/g" \
 	-e "s/\$(EXECUTABLE_NAME)/$host_product/g" \
-	"$dir/host/Info.plist" > "$app/Contents/Info.plist"
+	"$dir/native/host/Info.plist" > "$app/Contents/Info.plist"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
-prepare_entitlements "$host_profile" "$dir/host/NinePFSHost.entitlements" "$host_entitlements" host "$host_bundle_id"
+prepare_entitlements "$host_profile" "$dir/native/host/NinePFSHost.entitlements" "$host_entitlements" host "$host_bundle_id"
 if [[ -n "$host_profile" ]]; then
 	cp "$host_profile" "$app/Contents/embedded.provisionprofile"
 fi

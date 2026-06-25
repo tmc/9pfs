@@ -11,7 +11,7 @@ for script in *.sh; do
 	/bin/bash -n "$script"
 done
 
-for plist in appex/Info.plist fsbundle/Info.plist host/Info.plist; do
+for plist in native/appex/Info.plist native/fsbundle/Info.plist native/host/Info.plist; do
 	plutil -lint "$plist"
 done
 

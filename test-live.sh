@@ -30,7 +30,7 @@ trap 'rm -rf "$tmp"' EXIT
 # against the local chmod/mtime/xattr patch.
 p9src=$tmp/p9-src
 modfile=$tmp/go.mod
-"$dir/prepare-p9-module.sh" "$p9src"
+prepare_p9_module "$p9src"
 rewrite_apple_replace "$dir/go.mod" >"$modfile"
 cp "$dir/go.sum" "${modfile%.mod}.sum"
 printf '\nreplace github.com/hugelgupf/p9 => %s\n' "$p9src" >>"$modfile"

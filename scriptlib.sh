@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# scriptlib_dir is the directory holding this library, for helpers that need a
+# repository-relative path (for example the p9 patch).
+scriptlib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
 # rewrite_apple_replace prints a go.mod to stdout with any relative
 # "replace github.com/tmc/apple => <relative>" target rewritten to an
 # absolute path, resolved against the directory holding the go.mod. Builds
@@ -85,6 +89,23 @@ require_cert_in_profile() {
 	echo "signing: regenerate the profile against the cert you hold, e.g." >&2
 	echo "  asc profiles create --type MAC_APP_DIRECT --bundle <id> --certs <asc-cert-id>" >&2
 	return 1
+}
+
+# prepare_p9_module copies github.com/hugelgupf/p9@v0.4.1 from the module
+# cache into $1 and applies the local 9pfs patch. The patch adds server-side
+# chmod/mtime and a client xattr implementation that the upstream p9ufs test
+# server lacks, so the live tests exercise the FSKit path rather than stopping
+# at the server. It is local to the build and does not change module
+# dependencies. scriptlib_dir is the directory holding this library.
+prepare_p9_module() {
+	local dest=${1:?"usage: prepare_p9_module dest"}
+	local modcache
+	modcache=$(GOWORK=off go env GOMODCACHE)
+	rm -rf "$dest"
+	mkdir -p "$dest"
+	cp -R "$modcache/github.com/hugelgupf/p9@v0.4.1/." "$dest/"
+	chmod -R u+w "$dest"
+	patch -d "$dest" -p1 < "$scriptlib_dir/p9-v0.4.1-9pfs.patch"
 }
 
 ninepfs_active_mounts() {

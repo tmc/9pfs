@@ -46,7 +46,7 @@ else
 	printf 'hello from mounted 9p2000.l\n' >"$root/README"
 
 	p9src=$tmp/p9-src
-	"$dir/prepare-p9-module.sh" "$p9src"
+	prepare_p9_module "$p9src"
 	server_bin=$tmp/p9ufs
 	(cd "$p9src" && GOWORK=off go build -o "$server_bin" ./cmd/p9ufs)
 
