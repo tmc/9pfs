@@ -11,10 +11,11 @@ It speaks both classic 9P2000 (via `9fans.net/go`) and 9P2000.L (via
 
 The Apple framework bindings and the FSKit bridge come from
 `github.com/tmc/apple`: the generated Objective-C bindings (`foundation`,
-`fskit`, `objc`, …) and `x/fskitbridge`, which owns the FSKit selector
-implementations. `9pfs` supplies only the pure-Go volume on top of that bridge.
-The `go.mod` pins `github.com/tmc/apple` to a published commit; nothing else in
-this repository is generated.
+`fskit`, `objc`, …) and `x/fskitbridge`, which owns the FSKit side of the
+extension — class registration, the operation selectors, the c-archive
+lifecycle, and errno reporting. `9pfs` supplies only the pure-Go volume on top
+of that bridge. The `go.mod` pins `github.com/tmc/apple` to a published commit;
+nothing else in this repository is generated.
 
 To develop against a local checkout of the bindings, add a temporary replace:
 
@@ -29,7 +30,7 @@ github.com/tmc/apple@<commit>` to return to a pinned version.
 
 ## Architecture
 
-Three files implement the extension:
+The Go side is one package. Three files carry the work:
 
   - `backend.go` — the `backend` interface and its 9P implementations
     (`ninePBackend` for 9P2000, `p9LBackend` for 9P2000.L). One concern: turn a
@@ -38,17 +39,28 @@ Three files implement the extension:
     top of the backend. The shared `fskitbridge.Server` owns the FSKit side:
     class registration, operation selectors, item identity, reply blocks, and
     errno reporting.
-  - `cshared.go` — startup: the `//export`ed entry points (`NinePFSInit`,
-    `NinePFSConfigureFileSystem`, `NinePFS*Resource`) that create the bridge
-    server against the Swift-provided `NinePFileSystem` class and route the
-    FSKit calls to it.
+  - `cshared.go` — the `//export`ed entry points (`NinePFSInit`,
+    `NinePFSConfigureFileSystem`, `NinePFS*Resource`). Each is a one-line
+    wrapper over a process-wide `fskitbridge.Extension`, which owns the
+    c-archive lifecycle (lazy retryable init, last-error, reply fallback, panic
+    recovery); a c-archive cannot re-export Go functions from an imported
+    package, so the wrappers live here while the logic lives in the bridge.
 
-The native side lives in `appex/`: `NinePFSExtension.swift` is a nine-line
-`UnaryFileSystemExtension` whose `fileSystem` is the `NinePFileSystem` class,
-and `NinePFileSystem.m`/`.h` is that Objective-C principal class. The Go side
-builds as a c-archive exporting `NinePFSInit` and `NinePFSConfigureFileSystem`;
-the Swift executable links the archive and the class and calls them before
-`UnaryFileSystemExtension.main()`.
+`errno.go` translates the backends' error vocabularies — the 9P2000.L client's
+`linux.Errno` and the classic client's plain string errors — into Darwin
+`syscall.Errno` values, which the bridge maps to FSKit errnos.
+
+The native side lives under `native/`:
+
+  - `native/appex/NinePFSExtension.swift` is a nine-line
+    `UnaryFileSystemExtension` whose `fileSystem` is the `NinePFileSystem`
+    class; `native/appex/NinePFileSystem.m`/`.h` is that Objective-C principal
+    class. The Go side builds as a c-archive exporting `NinePFSInit` and
+    `NinePFSConfigureFileSystem`; the Swift executable links the archive and
+    the class and calls them before `UnaryFileSystemExtension.main()`.
+  - `native/host/` is the host app that registers and enables the extension,
+    `native/fsbundle/` and `native/mounthelper/` the optional `.fs` bundle for
+    plain `mount -t 9pfs`.
 
 ## Download and mount (notarized release)
 
@@ -140,6 +152,40 @@ GOWORK=off go run . -dialect 9p2000l -addr 127.0.0.1:5640 -ls /
 
 Use `-aname` when the server exports a named tree.
 
+## Feature matrix
+
+`9pfs` maps a 9P client connection into FSKit volume callbacks.
+
+| Operation | 9P2000 | 9P2000.L | FSKit callback |
+| --- | --- | --- | --- |
+| attach | yes | yes | `loadResource` |
+| stat | yes | yes | `getAttributes` |
+| readdir | yes | yes | `enumerateDirectory` |
+| lookup | yes | yes | `lookupItemNamed` |
+| read | yes | yes | `readFromFile` |
+| write | yes | yes | `writeContents` |
+| create file/directory | yes | yes | `createItemNamed` |
+| remove | yes | yes | `removeItem` |
+| rename | same-directory | yes | `renameItem` |
+| chmod/truncate | yes | yes | `setAttributes` |
+| mtime | client request; server-dependent | yes | `setAttributes` |
+| symlink creation/readlink | no | yes | `createSymbolicLinkNamed`, `readSymbolicLink` |
+| hard links | no | yes | `createLink` |
+| device/FIFO/socket attributes | stat only | stat only | `getAttributes` |
+| extended attributes | no | yes | `getXattr`, `setXattr`, `listXattrs`, `supportedXattrNames` |
+| xattr create/replace/delete policies | no | yes | `setXattr` policy argument |
+| open/close notifications | yes | yes | `openItem`, `closeItem` |
+| access checks | local allow | local allow | `checkAccessToItem` |
+| open-unlink emulation | yes | yes | `enableOpenUnlinkEmulation` |
+| preallocation by size extension | yes | yes | `preallocateSpaceForItem` |
+| volume statistics | synthetic | synthetic | `volumeStatistics` |
+
+Not yet implemented: device node creation (FSKit's generic item-creation
+callback is documented for files and directories; existing device, FIFO, and
+socket nodes are reported through attributes), advisory locking (9P2000.L
+exposes locks but the current FSKit operation set advertises no lock mapping),
+and authentication beyond the local-user or anonymous attach defaults.
+
 ## Local verification
 
 ```sh
@@ -160,16 +206,12 @@ server per dialect and exercises the real backend:
 ```
 
 For 9P2000.L the script patches a temporary copy of
-`github.com/hugelgupf/p9@v0.4.1`: its `p9ufs` server localfs ignores chmod and
-does not honor mtime, and its client xattr methods return `ENOSYS`. The patch
-adds server-side chmod/mtime and a client xattr implementation so the FSKit path
-is exercised rather than stopping at the test server. It is local to the build
-and does not change module dependencies. (The earlier Darwin compile fix this
-once carried is now upstream in v0.4.1, so the patch is two hunks rather than
-three.)
-
-See `FEATURES.md` for the supported/unsupported operation matrix and
-`READINESS.md` for verification state.
+`github.com/hugelgupf/p9@v0.4.1` (`prepare_p9_module` in `scriptlib.sh`): its
+`p9ufs` server localfs ignores chmod and does not honor mtime, and its client
+xattr methods return `ENOSYS`. The patch adds server-side chmod/mtime and a
+client xattr implementation so the FSKit path is exercised rather than stopping
+at the test server. It is local to the build and does not change module
+dependencies.
 
 ## Installing
 
@@ -260,7 +302,11 @@ The gate starts a disposable 9P2000.L server (or mounts the URL you pass),
 mounts it with `/sbin/mount -F -t 9pfs`, and verifies mounted directory listing,
 read, write, rename, truncate, chmod, mtime, symlink, hardlink, xattr, and
 remove. It refuses to run while another 9pfs mount is active unless
-`NINEPFS_ALLOW_ACTIVE_MOUNTS=yes` is set.
+`NINEPFS_ALLOW_ACTIVE_MOUNTS=yes` is set. Expected final line:
+
+```text
+9pfs: installed FSKit mount read/write/rename/chmod/mtime/truncate/link/xattr/remove ok
+```
 
 ## Notes
 
