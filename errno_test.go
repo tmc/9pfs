@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/hugelgupf/p9/linux"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 // TestBackendErrorLinuxErrno covers the gap the in-memory smoke backend
@@ -30,7 +31,7 @@ func TestBackendErrorLinuxErrno(t *testing.T) {
 		{"EISDIR", linux.EISDIR, syscall.EISDIR},
 		{"ENOTDIR", linux.ENOTDIR, syscall.ENOTDIR},
 		{"EROFS", linux.EROFS, syscall.EROFS},
-		{"ENODATA maps to Darwin ENOATTR", linux.ENODATA, errnoENOATTR},
+		{"ENODATA maps to Darwin ENOATTR", linux.ENODATA, fskitbridge.ENOATTR},
 		{"ENOTSUP", linux.ENOTSUP, syscall.ENOTSUP},
 		{"wrapped EACCES", fmt.Errorf("write %s: %w", "f", linux.EACCES), syscall.EACCES},
 		{"unknown linux errno falls to EIO", linux.Errno(0xfff), syscall.EIO},

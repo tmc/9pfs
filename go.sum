@@ -13,6 +13,8 @@ github.com/josharian/native v1.0.1-0.20221213033349-c1e37c09b531/go.mod h1:7X/ra
 github.com/pierrec/lz4/v4 v4.1.14/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/tmc/apple v0.6.13-0.20260624042530-fabcc532897d h1:6GRkkUgLSDb6cn5VpZiX3pPbUtPQh86zXjuIAYVGy3Q=
 github.com/tmc/apple v0.6.13-0.20260624042530-fabcc532897d/go.mod h1:QJV85Y1rc4sDQtuBobmYe4mIz5akPLzm3caYmVEmdvE=
+github.com/tmc/apple v0.6.13-0.20260625191638-06d61dee95ba h1:lFVTIJ/U7K4jcTwfITfqYE8nz5X6w0NNOx1cRkRODdE=
+github.com/tmc/apple v0.6.13-0.20260625191638-06d61dee95ba/go.mod h1:QJV85Y1rc4sDQtuBobmYe4mIz5akPLzm3caYmVEmdvE=
 github.com/u-root/uio v0.0.0-20230305220412-3e8cd9d6bf63 h1:YcojQL98T/OO+rybuzn2+5KrD5dBwXIvYBvQ2cD3Avg=
 github.com/u-root/uio v0.0.0-20230305220412-3e8cd9d6bf63/go.mod h1:eLL9Nub3yfAho7qB0MzZizFhTU2QkLeoVsWdHtDW264=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

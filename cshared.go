@@ -13,8 +13,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime/debug"
-	"sync"
 	"syscall"
 	"unsafe"
 
@@ -32,61 +30,52 @@ func init() {
 	}()
 }
 
-// replyFallback delivers failure replies when the bridge server is not
-// available, so an exported entry point can still answer FSKit.
-var replyFallback = fskitbridge.NewReplyBlocksWithShims(ninepShims)
+// ninepExtension hosts the bridge server inside the FSKit extension. It owns
+// the c-archive lifecycle (lazy retryable init, last-error, reply fallback,
+// panic recovery); the exported entry points below are one-line wrappers,
+// since a c-archive cannot re-export Go functions from an imported package.
+var ninepExtension = fskitbridge.NewExtension(ninepShims, newNinepServer)
 
-// csharedInit records whether the bridge is initialized and the most recent
-// failure for NinePFSLastError. A failure is not sticky: every exported entry
-// point retries initialization, so an early call that races extension
-// startup (for example before the Swift shim registers its class) does not
-// poison the process.
-var csharedInit struct {
-	sync.Mutex
-	ok  bool
-	err error
+// newNinepServer builds the bridge server against the Swift-provided
+// NinePFileSystem class. It is retried on every Init until the class is
+// registered, so a call that races extension startup does not poison the
+// process.
+func newNinepServer() (*fskitbridge.Server, error) {
+	cls := objc.GetClass("NinePFileSystem")
+	if cls == 0 {
+		return nil, errors.New("swift shim did not register NinePFileSystem")
+	}
+	var srv *fskitbridge.Server
+	var err error
+	objc.AutoreleasePool(func() {
+		srv, err = ensureServer(cls, &ninepFileSystem{config: defaultFSConfigFromEnv()})
+	})
+	if err != nil {
+		extensionLog("register bridge: " + err.Error())
+	}
+	return srv, err
 }
 
 //export NinePFSInit
 func NinePFSInit() C.int {
-	csharedInit.Lock()
-	defer csharedInit.Unlock()
-	if csharedInit.ok {
-		return 0
-	}
-	cls := objc.GetClass("NinePFileSystem")
-	if cls == 0 {
-		csharedInit.err = errors.New("swift shim did not register NinePFileSystem")
+	if ninepExtension.Init() != nil {
 		return -1
 	}
-	var err error
-	objc.AutoreleasePool(func() {
-		_, err = ensureServer(cls, &ninepFileSystem{config: defaultFSConfigFromEnv()})
-	})
-	if err != nil {
-		csharedInit.err = err
-		extensionLog("register bridge: " + err.Error())
-		return -1
-	}
-	csharedInit.ok, csharedInit.err = true, nil
 	return 0
 }
 
 //export NinePFSNewFileSystem
 func NinePFSNewFileSystem() unsafe.Pointer {
-	if NinePFSInit() != 0 {
-		return nil
-	}
 	// An objc.ID is an object pointer; reinterpret rather than convert
 	// through uintptr, which vet rejects.
-	fs := currentServer().NewFileSystem()
+	fs := ninepExtension.NewFileSystem()
 	return *(*unsafe.Pointer)(unsafe.Pointer(&fs))
 }
 
 //export NinePFSConfigureFileSystem
 func NinePFSConfigureFileSystem(raw unsafe.Pointer) C.int {
 	extensionLog("configure file system begin")
-	if NinePFSInit() != 0 {
+	if ninepExtension.Init() != nil {
 		extensionLog("configure file system: init failed")
 		return -1
 	}
@@ -99,61 +88,32 @@ func NinePFSConfigureFileSystem(raw unsafe.Pointer) C.int {
 }
 
 //export NinePFSProbeResource
-func NinePFSProbeResource(self unsafe.Pointer, resource unsafe.Pointer, reply unsafe.Pointer) {
-	defer recoverExported("probeResource")
-	extensionLog("probeResource begin")
-	if NinePFSInit() != 0 {
-		_ = replyFallback.ObjectError(objc.ID(uintptr(reply)), 0, posixError(syscall.EINVAL))
-		return
-	}
-	currentServer().ProbeResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(reply)))
-	extensionLog("probeResource end")
+func NinePFSProbeResource(self, resource, reply unsafe.Pointer) {
+	ninepExtension.ProbeResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(reply)))
 }
 
 //export NinePFSLoadResource
-func NinePFSLoadResource(self unsafe.Pointer, resource unsafe.Pointer, options unsafe.Pointer, reply unsafe.Pointer) {
-	defer recoverExported("loadResource")
-	extensionLog("loadResource begin")
-	if NinePFSInit() != 0 {
-		_ = replyFallback.ObjectError(objc.ID(uintptr(reply)), 0, posixError(syscall.EINVAL))
-		return
-	}
-	currentServer().LoadResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(options)), objc.ID(uintptr(reply)))
-	extensionLog("loadResource end")
+func NinePFSLoadResource(self, resource, options, reply unsafe.Pointer) {
+	ninepExtension.LoadResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(options)), objc.ID(uintptr(reply)))
 }
 
 //export NinePFSUnloadResource
-func NinePFSUnloadResource(self unsafe.Pointer, resource unsafe.Pointer, options unsafe.Pointer, reply unsafe.Pointer) {
-	defer recoverExported("unloadResource")
-	extensionLog("unloadResource begin")
-	if NinePFSInit() != 0 {
-		_ = replyFallback.Error(objc.ID(uintptr(reply)), posixError(syscall.EINVAL))
-		return
-	}
-	currentServer().UnloadResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(options)), objc.ID(uintptr(reply)))
-	extensionLog("unloadResource end")
+func NinePFSUnloadResource(self, resource, options, reply unsafe.Pointer) {
+	ninepExtension.UnloadResource(objc.ID(uintptr(self)), objc.ID(uintptr(resource)), objc.ID(uintptr(options)), objc.ID(uintptr(reply)))
 }
 
 //export NinePFSLastError
 func NinePFSLastError() *C.char {
-	csharedInit.Lock()
-	defer csharedInit.Unlock()
-	if csharedInit.err == nil {
+	err := ninepExtension.LastError()
+	if err == nil {
 		return nil
 	}
-	return C.CString(csharedInit.err.Error())
+	return C.CString(err.Error())
 }
 
 func extensionLog(msg string) {
 	nativeExtensionLog(msg)
 	if os.Getenv("NINEPFS_DEBUG") != "" {
 		fmt.Fprintln(os.Stderr, "9pfs: "+msg)
-	}
-}
-
-func recoverExported(name string) {
-	if r := recover(); r != nil {
-		extensionLog(fmt.Sprintf("%s panic: %v\n%s", name, r, debug.Stack()))
-		os.Exit(2)
 	}
 }

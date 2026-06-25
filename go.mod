@@ -7,7 +7,7 @@ require (
 	github.com/ebitengine/purego v0.10.1
 )
 
-require github.com/tmc/apple v0.6.13-0.20260624042530-fabcc532897d
+require github.com/tmc/apple v0.6.13-0.20260625191638-06d61dee95ba
 
 require (
 	github.com/hugelgupf/p9 v0.4.1

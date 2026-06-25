@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/hugelgupf/p9/linux"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 // The 9P backends report failures in their own vocabularies: the 9P2000.L
@@ -51,15 +52,12 @@ var linuxToDarwin = map[linux.Errno]syscall.Errno{
 	linux.ENAMETOOLONG: syscall.ENAMETOOLONG,
 	linux.ENOTEMPTY:    syscall.ENOTEMPTY, // Linux 39, Darwin 66
 	linux.ELOOP:        syscall.ELOOP,
-	linux.ENODATA:      errnoENOATTR, // Linux ENODATA 61, Darwin ENOATTR 93
+	linux.ENODATA:      fskitbridge.ENOATTR, // Linux ENODATA 61, Darwin ENOATTR 93
 	linux.EDQUOT:       syscall.EDQUOT,
 	// Linux aliases ENOTSUP and EOPNOTSUPP to the same value (95); Darwin
 	// splits them (ENOTSUP 45, EOPNOTSUPP 102). Report the general ENOTSUP.
 	linux.ENOTSUP: syscall.ENOTSUP,
 }
-
-// errnoENOATTR is Darwin's ENOATTR, which the syscall package does not name.
-const errnoENOATTR = syscall.Errno(93)
 
 // stringToErrno maps the substrings of well-known classic 9P (9P2000) server
 // error messages to errnos, since that client returns plain string errors.

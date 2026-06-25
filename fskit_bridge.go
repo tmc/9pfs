@@ -634,10 +634,6 @@ func supportsHardLinks(b backend) bool {
 	return ok && c.supportsHardLinks()
 }
 
-func posixError(errno syscall.Errno) objc.ID {
-	return fskitbridge.POSIXError(errno)
-}
-
 // logBridge logs a bridge diagnostic. os_log (nativeExtensionLog) is always
 // emitted: it is the running extension's proper channel and goes to the
 // unified log, not a file. The stderr and on-disk sinks are gated behind
