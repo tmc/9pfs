@@ -38,15 +38,17 @@ Three files implement the extension:
     top of the backend. The shared `fskitbridge.Server` owns the FSKit side:
     class registration, operation selectors, item identity, reply blocks, and
     errno reporting.
-  - `extension.go` / `cshared.go` — startup: create the bridge server against
-    the Swift-provided `NinePFileSystem` class and route its exported entry
-    points to the server.
+  - `cshared.go` — startup: the `//export`ed entry points (`NinePFSInit`,
+    `NinePFSConfigureFileSystem`, `NinePFS*Resource`) that create the bridge
+    server against the Swift-provided `NinePFileSystem` class and route the
+    FSKit calls to it.
 
-The Swift entrypoint is nine lines (`appex/NinePFSExtension.swift`): a
-`UnaryFileSystemExtension` whose `fileSystem` is the `NinePFileSystem` class.
-The Go side builds as a c-archive that exports `NinePFSInit` and
-`NinePFSConfigureFileSystem`; the Swift executable links it and calls them
-before `UnaryFileSystemExtension.main()`.
+The native side lives in `appex/`: `NinePFSExtension.swift` is a nine-line
+`UnaryFileSystemExtension` whose `fileSystem` is the `NinePFileSystem` class,
+and `NinePFileSystem.m`/`.h` is that Objective-C principal class. The Go side
+builds as a c-archive exporting `NinePFSInit` and `NinePFSConfigureFileSystem`;
+the Swift executable links the archive and the class and calls them before
+`UnaryFileSystemExtension.main()`.
 
 ## Download and mount (notarized release)
 
@@ -144,15 +146,9 @@ Use `-aname` when the server exports a named tree.
 ./verify-local.sh
 ```
 
-This runs shell/plist lint, `go test`, the in-memory FSKit smoke path
-(`-fskit-smoke`), the Swift entrypoint probe, classic and `.L` live 9P checks,
-and the default bundle assembly.
-
-The in-memory smoke path checks the FSKit callback wiring without a live server:
-
-```sh
-GOWORK=off go run . -fskit-smoke
-```
+This runs shell/plist lint, `go vet`, `go test` (including `TestFSKitSmoke`,
+which drives the FSKit callbacks against an in-memory tree), classic and `.L`
+live 9P checks, and the default bundle assembly.
 
 The live checks start disposable servers and exercise the real client:
 
@@ -273,7 +269,8 @@ the tag is an `AppleVirtIO9P` IORegistry device property — useful for
 VM-provided virtio 9p, not arbitrary 9p servers, and it does not exercise this
 bridge.
 
-An experimental no-cgo / no-Swift-`@main` entrypoint was explored under
-`examples/fskit/9pfs-research/` in the `github.com/tmc/apple` repository. It is
-research scaffolding and is not part of this filesystem; the default Swift
-`@main` path above is the supported way to build and mount.
+An experimental entrypoint that `dlopen`s a Swift shim and resolves the
+ExtensionFoundation main without entering it was explored, but is not part of
+this filesystem; it lives on the `research/extension-main-probe` branch (and,
+in fuller form, under `examples/fskit/9pfs-research/` in `github.com/tmc/apple`).
+The Swift `@main` path above is the supported way to build and mount.

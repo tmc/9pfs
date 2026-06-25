@@ -66,6 +66,9 @@ For a read-only demonstration of an already-active mount:
 
 ## Research
 
-An experimental no-cgo, no-Swift-`@main` entrypoint and its Swift-metadata
-synthesis tooling live in `../9pfs-research/`. That path does not achieve a
-strict pure-Go FSKit entrypoint; see `../9pfs-research/RESEARCH.md`.
+An experimental entrypoint that resolves the ExtensionFoundation main without
+entering it lives on the `research/extension-main-probe` branch; a fuller
+no-cgo, no-Swift-`@main` exploration (with its Swift-metadata synthesis tooling)
+lives under `examples/fskit/9pfs-research/` in `github.com/tmc/apple`. Neither
+achieves a strict pure-Go FSKit entrypoint; the supported path is the Swift
+`@main` shell.
