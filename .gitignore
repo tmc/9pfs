@@ -1,0 +1,16 @@
+# Binary left by `go run .` (named after the module directory).
+/9pfs
+
+# c-archive / c-shared build outputs.
+*.a
+*.h
+*.dylib
+
+# Swift build caches.
+.build/
+swiftshim/.build/
+
+# Xcode.
+DerivedData/
+*.xcuserstate
+xcuserdata/
