@@ -126,3 +126,147 @@ require_no_active_9pfs_mounts() {
 		return 1
 	fi
 }
+
+# verify_signed_build checks a freshly signed build directory ($1): the bundle
+# ids, the FSKit extension point, a strict deep signature, and the sandbox /
+# fskit-module / network-client entitlements. release.sh runs it after a
+# developer-id build, before notarizing.
+verify_signed_build() {
+	local build_dir=${1:?"usage: verify_signed_build BUILD_DIR"}
+	local app=$build_dir/NinePFSHost.app
+	local appex=$app/Contents/Extensions/NinePFSExtension.appex
+	local extension_bin=$appex/Contents/MacOS/NinePFSExtension
+
+	[[ -d "$app" ]] || { echo "verify-signed-build: missing app: $app" >&2; return 1; }
+	[[ -d "$appex" ]] || { echo "verify-signed-build: missing extension: $appex" >&2; return 1; }
+	[[ -x "$extension_bin" ]] || { echo "verify-signed-build: missing extension executable: $extension_bin" >&2; return 1; }
+
+	codesign --verify --deep --strict "$app"
+
+	local host_id extension_id extension_point
+	host_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
+	extension_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$appex/Contents/Info.plist")
+	extension_point=$(/usr/libexec/PlistBuddy -c 'Print :EXAppExtensionAttributes:EXExtensionPointIdentifier' "$appex/Contents/Info.plist")
+
+	[[ "$host_id" == "dev.tmc.apple.examples.fskit.9pfs" ]] ||
+		{ echo "verify-signed-build: unexpected host bundle id: $host_id" >&2; return 1; }
+	[[ "$extension_id" == "dev.tmc.apple.examples.fskit.9pfs.extension" ]] ||
+		{ echo "verify-signed-build: unexpected extension bundle id: $extension_id" >&2; return 1; }
+	[[ "$extension_point" == "com.apple.fskit.fsmodule" ]] ||
+		{ echo "verify-signed-build: unexpected extension point: $extension_point" >&2; return 1; }
+
+	local host_entitlements extension_entitlements
+	host_entitlements=$(mktemp)
+	extension_entitlements=$(mktemp)
+	codesign -d --entitlements :- "$app" >"$host_entitlements" 2>/dev/null
+	codesign -d --entitlements :- "$appex" >"$extension_entitlements" 2>/dev/null
+
+	local rc=0
+	/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$host_entitlements" | grep -qx true ||
+		{ echo "verify-signed-build: host is missing app sandbox entitlement" >&2; rc=1; }
+	/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$extension_entitlements" | grep -qx true ||
+		{ echo "verify-signed-build: extension is missing app sandbox entitlement" >&2; rc=1; }
+	/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.fskit.fsmodule' "$extension_entitlements" | grep -qx true ||
+		{ echo "verify-signed-build: extension is missing fskit module entitlement" >&2; rc=1; }
+	/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$extension_entitlements" | grep -qx true ||
+		{ echo "verify-signed-build: extension is missing network client entitlement" >&2; rc=1; }
+	rm -f "$host_entitlements" "$extension_entitlements"
+	[[ $rc -eq 0 ]] || return 1
+
+	echo "9pfs: signed build verification ok ($host_id, $extension_id)"
+}
+
+# preflight_installed checks that the signed host app is installed and the FSKit
+# extension is registered and enabled, before test-installed mounts it. It
+# verifies the installed app/extension, the host signature, the embedded
+# provisioning profiles (app ids and the fskit-module grant), PlugInKit
+# registration, and that --fskit-probe reports the module enabled.
+preflight_installed() {
+	local app=${NINEPFS_INSTALLED_APP:-/Applications/NinePFSHost.app}
+	local fsbundle=${NINEPFS_INSTALLED_FSBUNDLE:-/Library/Filesystems/9pfs.fs}
+	local host_id=${NINEPFS_HOST_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs}
+	local extension_id=${NINEPFS_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs.extension}
+	local fail=0
+
+	_preflight_profile_value() {
+		local profile=$1 key=$2 plist
+		plist=$(mktemp)
+		if security cms -D -i "$profile" >"$plist" 2>/dev/null; then
+			/usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" 2>/dev/null || true
+		fi
+		rm -f "$plist"
+	}
+
+	[[ -d "$app" ]] && echo "ok: installed host app" ||
+		{ echo "missing: installed host app"; fail=1; }
+	[[ -d "$app/Contents/Extensions/NinePFSExtension.appex" ]] && echo "ok: installed extension" ||
+		{ echo "missing: installed extension"; fail=1; }
+	if [[ -x "$fsbundle/Contents/Resources/mount_9pfs" ]]; then
+		echo "ok: installed mount helper"
+	else
+		echo "note: no installed mount helper at $fsbundle/Contents/Resources/mount_9pfs"
+		echo "hint: direct /sbin/mount -F -t 9pfs does not require the helper"
+	fi
+
+	if [[ -d "$app" ]]; then
+		codesign --verify --deep --strict "$app" >/dev/null 2>&1 && echo "ok: host signature" ||
+			{ echo "missing: host signature is not strict-valid"; fail=1; }
+	fi
+
+	local host_profile=$app/Contents/embedded.provisionprofile
+	local extension_profile=$app/Contents/Extensions/NinePFSExtension.appex/Contents/embedded.provisionprofile
+
+	if [[ -f "$host_profile" ]]; then
+		local host_app_id
+		host_app_id=$(_preflight_profile_value "$host_profile" com.apple.application-identifier)
+		[[ "${host_app_id#*.}" == "$host_id" ]] && echo "ok: host profile matches $host_id" ||
+			{ echo "missing: host profile app id ${host_app_id:-<none>} does not match $host_id"; fail=1; }
+	else
+		echo "missing: host embedded provisioning profile for $host_id"
+		echo "hint: rebuild with NINEPFS_HOST_PROFILE or a matching auto-discovered profile"
+		fail=1
+	fi
+
+	if [[ -f "$extension_profile" ]]; then
+		local extension_app_id
+		extension_app_id=$(_preflight_profile_value "$extension_profile" com.apple.application-identifier)
+		[[ "${extension_app_id#*.}" == "$extension_id" ]] && echo "ok: extension profile matches $extension_id" ||
+			{ echo "missing: extension profile app id ${extension_app_id:-<none>} does not match $extension_id"; fail=1; }
+		[[ "$(_preflight_profile_value "$extension_profile" com.apple.developer.fskit.fsmodule)" == true ]] &&
+			echo "ok: extension profile grants com.apple.developer.fskit.fsmodule" ||
+			{ echo "missing: extension profile does not grant com.apple.developer.fskit.fsmodule"; fail=1; }
+	else
+		echo "missing: extension embedded provisioning profile for $extension_id"
+		echo "hint: rebuild with NINEPFS_EXTENSION_PROFILE granting com.apple.developer.fskit.fsmodule"
+		fail=1
+	fi
+
+	if pluginkit -m -A -D -i "$extension_id" 2>/dev/null | grep -q "$extension_id"; then
+		echo "ok: PlugInKit registration"
+	else
+		echo "missing: PlugInKit registration for $extension_id"
+		fail=1
+	fi
+
+	if [[ -x "$app/Contents/MacOS/NinePFSHost" ]]; then
+		local probe
+		probe=$("$app/Contents/MacOS/NinePFSHost" --fskit-probe 2>&1 || true)
+		printf '%s\n' "$probe"
+		if printf '%s\n' "$probe" | grep -q "fskit: $extension_id enabled=true"; then
+			echo "ok: FSKit reports module enabled"
+		elif printf '%s\n' "$probe" | grep -q "fskit: $extension_id enabled=false"; then
+			echo "missing: FSKit reports module disabled; enable it in System Settings"
+			echo "hint: $app/Contents/MacOS/NinePFSHost --open-fskit-settings"
+			fail=1
+		else
+			echo "missing: FSKit does not list $extension_id"
+			fail=1
+		fi
+	else
+		echo "missing: host probe executable"
+		fail=1
+	fi
+
+	[[ "$fail" -eq 0 ]] || { echo "9pfs: installed preflight failed" >&2; return 1; }
+	echo "9pfs: installed preflight ok"
+}

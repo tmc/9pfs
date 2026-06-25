@@ -38,7 +38,7 @@ echo "release: building developer-id bundle in $build_dir"
 rm -rf "$out"
 mkdir -p "$build_dir"
 CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes "$dir/build-appex.sh" "$build_dir" >/dev/null
-"$dir/verify-signed-build.sh" "$build_dir"
+verify_signed_build "$build_dir"
 
 echo "release: notarizing"
 # notarize-build.sh is itself gated; pass the confirmation through.

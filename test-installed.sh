@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # With no URL it starts a disposable patched p9ufs and mounts it; with a URL it
 # mounts that instead. Requires the signed host app installed in /Applications
-# and the extension enabled in System Settings (checked by preflight-installed).
+# and the extension enabled in System Settings (checked by preflight_installed).
 
 dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scriptlib.sh
@@ -65,7 +65,7 @@ fi
 mkdir -p "$mnt"
 mount | awk '{print $3}' | grep -qx "$mnt" && die "$mnt is already mounted"
 
-"$dir/preflight-installed.sh"
+preflight_installed
 /Applications/NinePFSHost.app/Contents/MacOS/NinePFSHost --fskit-probe
 
 echo "test-installed: mounting $url at $mnt"
