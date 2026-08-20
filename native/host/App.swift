@@ -23,6 +23,37 @@ final class ModuleList: ObservableObject {
 
 	var ninepfs: Row? { modules.first { $0.id == Self.ninepfsBundleID } }
 
+	// bundledExtensionURL is the extension embedded in this app bundle, which
+	// macOS registers when the app is launched from its installed location.
+	static let bundledExtensionURL: URL? = {
+		let extensions = Bundle.main.bundleURL.appendingPathComponent("Contents/Extensions")
+		let entries = (try? FileManager.default.contentsOfDirectory(
+			at: extensions, includingPropertiesForKeys: nil)) ?? []
+		return entries.first { url in
+			url.pathExtension == "appex" && Bundle(url: url)?.bundleIdentifier == ninepfsBundleID
+		}
+	}()
+
+	enum Status {
+		case checking
+		case enabled
+		case disabled
+		// unverifiable: the extension is present in this app bundle but absent
+		// from a module list that names no third-party module at all. On some
+		// systems FSClient reports only the system modules, so that combination
+		// says nothing about whether the module is registered.
+		case unverifiable
+		case notInstalled
+	}
+
+	var status: Status {
+		guard loaded else { return .checking }
+		if let ninepfs { return ninepfs.enabled ? .enabled : .disabled }
+		let sawThirdParty = modules.contains { !$0.id.hasPrefix("com.apple.") }
+		if Self.bundledExtensionURL != nil && !sawThirdParty { return .unverifiable }
+		return .notInstalled
+	}
+
 	func refresh() {
 		loading = true
 		FSClient.shared.fetchInstalledExtensions { modules, error in
@@ -62,29 +93,39 @@ private func openFSKitSettings() {
 // StatusBadge shows the 9pfs extension's enabled state at a glance: a colored
 // dot plus a one-line summary that updates as the state is re-fetched.
 private struct StatusBadge: View {
-	let module: ModuleList.Row?
-	let loaded: Bool
+	let status: ModuleList.Status
 
 	private var color: Color {
-		guard loaded else { return .secondary }
-		guard let module else { return .orange }
-		return module.enabled ? .green : .orange
+		switch status {
+		case .checking, .unverifiable: return .secondary
+		case .enabled: return .green
+		case .disabled, .notInstalled: return .orange
+		}
 	}
 
 	private var title: String {
-		guard loaded else { return "Checking…" }
-		guard let module else { return "Not installed" }
-		return module.enabled ? "Enabled" : "Disabled"
+		switch status {
+		case .checking: return "Checking…"
+		case .enabled: return "Enabled"
+		case .disabled: return "Disabled"
+		case .unverifiable: return "Status unavailable"
+		case .notInstalled: return "Not installed"
+		}
 	}
 
 	private var detail: String {
-		guard loaded else { return "Reading FSKit module state." }
-		guard let module else {
-			return "The 9pfs FSKit module is not registered. Open the app once, then enable it in System Settings."
+		switch status {
+		case .checking:
+			return "Reading FSKit module state."
+		case .enabled:
+			return "Ready to mount. Use /sbin/mount -F -t 9pfs."
+		case .disabled:
+			return "Turn on “9pfs” in System Settings > General > Login Items & Extensions > File System Extensions."
+		case .unverifiable:
+			return "macOS is reporting only its own FSKit modules to this app, so the module's state cannot be read here. If “9pfs” appears in System Settings it is registered; confirm with “pluginkit -mAvvv -p com.apple.fskit.fsmodule” and mount as usual."
+		case .notInstalled:
+			return "The 9pfs FSKit module is not registered. Copy the app to /Applications and open it once, then enable it in System Settings."
 		}
-		return module.enabled
-			? "Ready to mount. Use /sbin/mount -F -t 9pfs."
-			: "Turn on “9pfs” in System Settings > General > Login Items & Extensions > File System Extensions."
 	}
 
 	var body: some View {
@@ -111,6 +152,7 @@ struct NinePFSHostApp: App {
 
 	init() {
 		if CommandLine.arguments.contains("--fskit-probe") {
+			print("fskit: bundled extension: \(ModuleList.bundledExtensionURL?.path ?? "missing")")
 			let semaphore = DispatchSemaphore(value: 0)
 			FSClient.shared.fetchInstalledExtensions { modules, error in
 				if let error {
@@ -118,6 +160,10 @@ struct NinePFSHostApp: App {
 				}
 				for module in modules ?? [] {
 					print("fskit: \(module.bundleIdentifier) enabled=\(module.isEnabled) url=\(module.url.path)")
+				}
+				if !(modules ?? []).contains(where: { !$0.bundleIdentifier.hasPrefix("com.apple.") }) {
+					print("fskit: no third-party module reported; the list is not authoritative here.")
+					print("fskit: check registration with: pluginkit -mAvvv -p com.apple.fskit.fsmodule")
 				}
 				semaphore.signal()
 			}
@@ -157,8 +203,9 @@ private struct ContentView: View {
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
 
-			StatusBadge(module: moduleList.ninepfs, loaded: moduleList.loaded)
+			StatusBadge(status: moduleList.status)
 				.padding(.vertical, 4)
+				.textSelection(.enabled)
 
 			HStack(spacing: 12) {
 				Button("Open System Settings") {
@@ -186,9 +233,12 @@ private struct ContentView: View {
 
 			if moduleList.modules.count > 1 || (moduleList.ninepfs == nil && !moduleList.modules.isEmpty) {
 				Divider()
-				Text("All installed FSKit modules")
+				Text(moduleList.status == .unverifiable
+					? "FSKit modules visible to this app (no third-party module is being reported)"
+					: "All installed FSKit modules")
 					.font(.caption)
 					.foregroundStyle(.secondary)
+					.fixedSize(horizontal: false, vertical: true)
 				List(moduleList.modules) { module in
 					HStack(spacing: 8) {
 						Circle()
