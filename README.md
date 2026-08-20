@@ -21,7 +21,9 @@ open /Applications/NinePFSHost.app             # registers the extension
 
 Enable the extension in System Settings > General > Login Items & Extensions >
 File System Extensions. The host app shows the module's live enabled/disabled
-status, so you can confirm the toggle took effect, then mount:
+status, so you can confirm the toggle took effect (see
+[Troubleshooting](#troubleshooting-the-install) if it cannot read that status),
+then mount:
 
 ```sh
 /sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' /path/to/mountpoint
@@ -29,6 +31,45 @@ status, so you can confirm the toggle took effect, then mount:
 
 The install (`sudo`) and the System Settings toggle are the one-time interactive
 steps macOS requires for any third-party file-system extension.
+
+## Troubleshooting the install
+
+The status the host app shows comes from FSKit's installed-module list, and that
+list is not always complete: on some systems it names only the modules macOS
+ships (`exfat`, `msdos`, …) and omits every third-party module, this one
+included. The app reports that as **Status unavailable** — the module's state
+could not be read, which is not the same as the module being missing. If
+System Settings lists a "9pfs" toggle, the module is registered.
+
+Registration is worth checking directly:
+
+```sh
+pluginkit -mAvvv -p com.apple.fskit.fsmodule
+```
+
+A leading `+` on `dev.tmc.apple.examples.fskit.9pfs.extension` means registered
+and enabled. The path printed under it is the app copy macOS registered; if that
+is not the copy you have been opening, delete the other copies and open
+`/Applications/NinePFSHost.app` again — only one copy wins.
+
+Either way, the mount is the real test; it does not consult the module list:
+
+```sh
+mkdir -p ~/9pfs-mnt
+/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs-mnt
+```
+
+To see what the app sees, without the app:
+
+```sh
+/Applications/NinePFSHost.app/Contents/MacOS/NinePFSHost --fskit-probe
+```
+
+and for a failing mount, the extension's own log:
+
+```sh
+log stream --predicate 'process == "NinePFSExtension" OR eventMessage CONTAINS "9pfs"' --info
+```
 
 ## Build it yourself
 
