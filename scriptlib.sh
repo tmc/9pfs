@@ -91,19 +91,26 @@ require_cert_in_profile() {
 	return 1
 }
 
-# prepare_p9_module copies github.com/hugelgupf/p9@v0.4.1 from the module
-# cache into $1 and applies the local 9pfs patch. The patch adds server-side
+# prepare_p9_module copies the github.com/hugelgupf/p9 version required by
+# go.mod into $1 and applies the local 9pfs patch. The patch adds server-side
 # chmod/mtime and a client xattr implementation that the upstream p9ufs test
 # server lacks, so the live tests exercise the FSKit path rather than stopping
 # at the server. It is local to the build and does not change module
 # dependencies. scriptlib_dir is the directory holding this library.
 prepare_p9_module() {
 	local dest=${1:?"usage: prepare_p9_module dest"}
-	local modcache
-	modcache=$(GOWORK=off go env GOMODCACHE)
+	local src
+	# Download first: a fresh checkout has no module cache, and go list alone
+	# reports an empty directory for a module that has not been fetched.
+	src=$(cd "$scriptlib_dir" && GOWORK=off go mod download github.com/hugelgupf/p9 &&
+		GOWORK=off go list -m -f '{{.Dir}}' github.com/hugelgupf/p9)
+	if [[ -z "$src" ]]; then
+		echo "prepare_p9_module: cannot locate github.com/hugelgupf/p9" >&2
+		return 1
+	fi
 	rm -rf "$dest"
 	mkdir -p "$dest"
-	cp -R "$modcache/github.com/hugelgupf/p9@v0.4.1/." "$dest/"
+	cp -R "$src/." "$dest/"
 	chmod -R u+w "$dest"
 	patch -d "$dest" -p1 < "$scriptlib_dir/p9-v0.4.1-9pfs.patch"
 }
