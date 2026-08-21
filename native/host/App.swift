@@ -155,7 +155,7 @@ private struct StatusBadge: View {
 		case .disabled:
 			return "Turn on “9pfs” in System Settings > General > Login Items & Extensions > File System Extensions."
 		case .unverifiable:
-			return "macOS is reporting only its own FSKit modules to this app, so the module's state cannot be read here. If “9pfs” appears in System Settings it is registered; confirm with “pluginkit -mAvvv -p com.apple.fskit.fsmodule” and mount as usual."
+			return "macOS is reporting only its own FSKit modules to this app, so the module's state cannot be read here. A damaged copy of this app does that; check with “codesign -vv --deep --strict” and re-extract the download with “ditto -x -k” if it complains. If “9pfs” appears in System Settings it is registered, and mounting works regardless."
 		case .notInstalled:
 			return "The 9pfs FSKit module is not registered. Copy the app to /Applications and open it once, then enable it in System Settings."
 		}

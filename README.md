@@ -41,6 +41,19 @@ included. The app reports that as **Status unavailable** — the module's state
 could not be read, which is not the same as the module being missing. If
 System Settings lists a "9pfs" toggle, the module is registered.
 
+The one cause worth ruling out first is a damaged copy of the app. Only a
+properly signed copy is told about third-party modules; the same bundle
+unsigned, or with its signature broken by an unarchiver that dropped symlinks
+or permissions, sees Apple's modules alone. Check it:
+
+```sh
+codesign -vv --deep --strict /Applications/NinePFSHost.app
+spctl -a -vvv --type install /Applications/NinePFSHost.app   # source=Notarized Developer ID
+```
+
+If either complains, re-extract the download with `ditto -x -k` (not a
+double-click unarchiver or plain `unzip`) and reinstall.
+
 Registration is worth checking directly:
 
 ```sh
