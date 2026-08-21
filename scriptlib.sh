@@ -125,6 +125,78 @@ prepare_p9_module() {
 	patch -d "$dest" -p1 < "$scriptlib_dir/p9-9pfs.patch"
 }
 
+export9p_version=v1.18.0
+
+# start_9p_server starts a disposable 9p server exporting ROOT on the loopback
+# and waits until it accepts connections. DIALECT picks the server: 9p2000 uses
+# knusbaum/go9p's export9p, 9p2000.L uses the p9ufs built from the patched p9
+# source in P9SRC (see prepare_p9_module). WORKDIR holds the built binaries and
+# the server log. On success the address is in $server_addr and the process id
+# in $server_pid, which the caller kills.
+#
+# The port is random and the launch is retried: two servers started in the same
+# second can pick the same port, and the loser dies at bind time, which is
+# indistinguishable from a readiness timeout unless the launch is retried.
+start_9p_server() {
+	local dialect=$1 root=$2 workdir=$3 p9src=${4:-}
+	local bin log port moddir
+
+	case "$dialect" in
+	9p2000)
+		bin=$workdir/export9p
+		if [[ ! -x "$bin" ]]; then
+			# Build from a throwaway pinned module so the binary is cached and
+			# hermetic rather than resolved through the proxy on every run.
+			moddir=$workdir/export9p-mod
+			mkdir -p "$moddir"
+			(
+				cd "$moddir" || exit
+				GOWORK=off go mod init ninepfs.test/export9p >/dev/null 2>&1
+				GOWORK=off go get "github.com/knusbaum/go9p/cmd/export9p@$export9p_version" >/dev/null 2>&1
+				GOWORK=off go build -o "$bin" github.com/knusbaum/go9p/cmd/export9p
+			)
+		fi
+		;;
+	9p2000l)
+		[[ -n "$p9src" ]] || {
+			echo "start_9p_server: 9p2000l needs a prepared p9 source" >&2
+			return 1
+		}
+		bin=$workdir/p9ufs
+		[[ -x "$bin" ]] || (cd "$p9src" && GOWORK=off go build -o "$bin" ./cmd/p9ufs)
+		;;
+	*)
+		echo "start_9p_server: unknown dialect $dialect" >&2
+		return 1
+		;;
+	esac
+
+	log=$workdir/server-$dialect.log
+	for _ in 1 2 3; do
+		port=$((20000 + RANDOM % 20000))
+		server_addr=127.0.0.1:$port
+		case "$dialect" in
+		9p2000) "$bin" -dir "$root" -address "$server_addr" -noperm >"$log" 2>&1 & ;;
+		9p2000l) "$bin" -root "$root" "$server_addr" >"$log" 2>&1 & ;;
+		esac
+		server_pid=$!
+		for _ in $(seq 1 300); do
+			if nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then
+				return 0
+			fi
+			kill -0 "$server_pid" 2>/dev/null || break
+			sleep 0.1
+		done
+		kill "$server_pid" 2>/dev/null || true
+		wait "$server_pid" 2>/dev/null || true
+	done
+
+	echo "start_9p_server: $dialect server did not become ready at $server_addr" >&2
+	cat "$log" >&2
+	server_pid=
+	return 1
+}
+
 ninepfs_active_mounts() {
 	mount | awk '$0 ~ /\(9pfs[,)]/ {print $3}'
 }

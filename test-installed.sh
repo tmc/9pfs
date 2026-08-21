@@ -47,19 +47,8 @@ else
 
 	p9src=$tmp/p9-src
 	prepare_p9_module "$p9src"
-	server_bin=$tmp/p9ufs
-	(cd "$p9src" && GOWORK=off go build -o "$server_bin" ./cmd/p9ufs)
-
-	port=$((20000 + RANDOM % 20000))
-	addr=127.0.0.1:$port
-	"$server_bin" -root "$root" "$addr" >"$tmp/p9ufs.log" 2>&1 &
-	server_pid=$!
-	for _ in $(seq 1 300); do
-		nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && break
-		kill -0 "$server_pid" 2>/dev/null || { cat "$tmp/p9ufs.log" >&2; die "p9ufs exited before ready"; }
-		sleep 0.1
-	done
-	url="ninep://$addr?dialect=9p2000l"
+	start_9p_server 9p2000l "$root" "$tmp" "$p9src" || die "no disposable server"
+	url="ninep://$server_addr?dialect=9p2000l"
 fi
 
 mkdir -p "$mnt"
