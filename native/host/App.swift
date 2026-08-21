@@ -97,30 +97,43 @@ final class ModuleList: ObservableObject {
 		return lines.joined(separator: "\n") + "\n"
 	}
 
-	func refresh() {
-		loading = true
+	// refresh re-reads the module list. userInitiated drives the button's busy
+	// state; the poll leaves it alone, because a spinner appearing every two
+	// seconds reads as the window flickering rather than as progress.
+	func refresh(userInitiated: Bool = false) {
+		if userInitiated {
+			loading = true
+		}
 		FSClient.shared.fetchInstalledExtensions { modules, error in
 			let rows = (modules ?? []).map { module in
 				Row(id: module.bundleIdentifier, enabled: module.isEnabled, path: module.url.path)
 			}
 			DispatchQueue.main.async {
-				self.loading = false
+				if userInitiated {
+					self.loading = false
+				}
 				self.loaded = true
 				if let error {
-					self.error = String(describing: error)
-					print("fskit: fetch installed extensions: \(error)")
+					let text = String(describing: error)
+					if self.error != text {
+						self.error = text
+						print("fskit: fetch installed extensions: \(error)")
+					}
 					return
 				}
-				// Log only on change: refresh runs on a poll, so logging every
-				// fetch would flood the unified log.
+				// Publish only on change. The poll runs every two seconds, and
+				// republishing identical rows redraws the list and floods the
+				// unified log for nothing.
 				let changed = rows.map(\.id) != self.modules.map(\.id)
 					|| rows.map(\.enabled) != self.modules.map(\.enabled)
-				self.modules = rows
-				self.error = nil
 				if changed {
+					self.modules = rows
 					for module in rows {
 						print("fskit: \(module.id) enabled=\(module.enabled) url=\(module.path)")
 					}
+				}
+				if self.error != nil {
+					self.error = nil
 				}
 			}
 		}
@@ -248,15 +261,10 @@ private struct ContentView: View {
 				Button("Open System Settings") {
 					openFSKitSettings()
 				}
-				Button {
-					moduleList.refresh()
-				} label: {
-					if moduleList.loading {
-						ProgressView()
-							.controlSize(.small)
-					} else {
-						Text("Refresh")
-					}
+				// The label stays "Refresh" whatever the state: swapping in a
+				// spinner resizes the button, and the row jumps with it.
+				Button("Refresh") {
+					moduleList.refresh(userInitiated: true)
 				}
 				.disabled(moduleList.loading)
 				Button(copied ? "Copied" : "Copy Diagnostics") {
