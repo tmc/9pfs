@@ -27,11 +27,15 @@ jobs:
       - run: sw_vers && xcodebuild -version
       - run: ./verify-local.sh "$RUNNER_TEMP/9pfs-build"
 
-  # modules records what FSKit's installed-module list hands a freshly built
-  # host app. That list is what the status badge reads, and on macOS 15 it is
-  # reported to name only the modules macOS ships. The job reports rather than
-  # asserts: a runner cannot enable a module, so the list it prints is a
-  # measurement of the API, not of a working install.
+  # modules records the FSKit modules each macOS version ships, as reported to
+  # a freshly built host app: exfat and msdos on 15, plus ftp on 26. That list
+  # is what the status badge reads, so it is worth watching for change.
+  #
+  # It cannot answer whether macOS 15 hides third-party modules from the app.
+  # pluginkit -a does not register the built extension on a runner, and nothing
+  # here can enable one, so both versions report only Apple's own modules and
+  # the interesting comparison never happens. Reproducing that needs a machine
+  # where the extension is installed and toggled on.
   modules:
     strategy:
       fail-fast: false
