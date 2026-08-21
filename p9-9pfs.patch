@@ -47,88 +47,56 @@
  	return nil
  }
  
---- orig/p9/client_file.go
-+++ patched/p9/client_file.go
-@@ -18,6 +18,7 @@
- 	"fmt"
- 	"io"
- 	"runtime"
-+	"strings"
- 	"sync/atomic"
- 
- 	"github.com/hugelgupf/p9/linux"
-@@ -70,24 +71,70 @@
+--- orig/p9/client_file.go	2026-08-21 16:19:01
++++ patched/p9/client_file.go	2026-08-21 16:19:15
+@@ -71,13 +71,48 @@
+ }
  
  // SetXattr implements p9.File.SetXattr.
++//
++// Txattrcreate turns the fid it is given into a write-only attribute fid, so
++// this walks to a clone of the file first and leaves the receiver's fid usable.
++// The value is written to the clone, and clunking it commits the attribute: the
++// server checks the bytes written against the size declared in Txattrcreate.
  func (c *clientFile) SetXattr(attr string, data []byte, flags XattrFlags) error {
 -	return linux.ENOSYS
 +	if atomic.LoadUint32(&c.closed) != 0 {
 +		return linux.EBADF
 +	}
-+	if err := c.client.sendRecv(&txattrcreate{fid: c.fid, Name: attr, AttrSize: uint64(len(data)), Flags: uint32(flags)}, &rxattrcreate{}); err != nil {
++
++	id, ok := c.client.fidPool.Get()
++	if !ok {
++		return ErrOutOfFIDs
++	}
++
++	// A walk with no names clones the fid without moving it.
++	if err := c.client.sendRecv(&twalk{fid: c.fid, newFID: fid(id)}, &rwalk{}); err != nil {
++		c.client.fidPool.Put(id)
++		return err
++	}
++
++	// newFile + Close clunks the attribute fid and returns it to the pool.
++	xattrFile := c.client.newFile(fid(id))
++	if err := c.client.sendRecv(&txattrcreate{fid: fid(id), Name: attr, AttrSize: uint64(len(data)), Flags: uint32(flags)}, &rxattrcreate{}); err != nil {
++		xattrFile.Close()
 +		return err
 +	}
 +	if len(data) > 0 {
-+		if _, err := c.WriteAt(data, 0); err != nil {
++		if _, err := xattrFile.WriteAt(data, 0); err != nil {
++			xattrFile.Close()
 +			return err
 +		}
 +	}
-+	return c.client.sendRecv(&tclunk{fid: c.fid}, &rclunk{})
++	return xattrFile.Close()
  }
  
  // RemoveXattr implements p9.File.RemoveXattr.
++//
++// A zero-length Txattrcreate with XattrReplace removes the attribute, and
++// fails with ENODATA if it does not exist.
  func (c *clientFile) RemoveXattr(attr string) error {
 -	return linux.ENOSYS
 +	return c.SetXattr(attr, nil, XattrReplace)
  }
  
  // GetXattr implements p9.File.GetXattr.
- func (c *clientFile) GetXattr(attr string) ([]byte, error) {
--	return nil, linux.ENOSYS
-+	return c.xattr(attr)
- }
- 
- // ListXattrs implements p9.File.ListXattrs.
- func (c *clientFile) ListXattrs() ([]string, error) {
--	return nil, linux.ENOSYS
-+	data, err := c.xattr("")
-+	if err != nil {
-+		return nil, err
-+	}
-+	list := strings.TrimRight(string(data), "\x00")
-+	if list == "" {
-+		return nil, nil
-+	}
-+	return strings.Split(list, "\x00"), nil
- }
- 
-+func (c *clientFile) xattr(attr string) ([]byte, error) {
-+	if atomic.LoadUint32(&c.closed) != 0 {
-+		return nil, linux.EBADF
-+	}
-+	id, ok := c.client.fidPool.Get()
-+	if !ok {
-+		return nil, ErrOutOfFIDs
-+	}
-+	xfid := fid(id)
-+	var walk rxattrwalk
-+	if err := c.client.sendRecv(&txattrwalk{fid: c.fid, newFID: xfid, Name: attr}, &walk); err != nil {
-+		c.client.fidPool.Put(id)
-+		return nil, err
-+	}
-+	xfile := c.client.newFile(xfid)
-+	defer xfile.Close()
-+	if walk.Size == 0 {
-+		return nil, nil
-+	}
-+	data := make([]byte, walk.Size)
-+	n, err := xfile.ReadAt(data, 0)
-+	if err != nil && err != io.EOF {
-+		return nil, err
-+	}
-+	return data[:n], nil
-+}
-+
- // Walk implements File.Walk.
- func (c *clientFile) Walk(names []string) ([]QID, File, error) {
- 	if atomic.LoadUint32(&c.closed) != 0 {

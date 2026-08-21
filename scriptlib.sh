@@ -92,11 +92,21 @@ require_cert_in_profile() {
 }
 
 # prepare_p9_module copies the github.com/hugelgupf/p9 version required by
-# go.mod into $1 and applies the local 9pfs patch. The patch adds server-side
-# chmod/mtime and a client xattr implementation that the upstream p9ufs test
-# server lacks, so the live tests exercise the FSKit path rather than stopping
-# at the server. It is local to the build and does not change module
-# dependencies. scriptlib_dir is the directory holding this library.
+# go.mod into $1 and applies p9-9pfs.patch. The patch has two halves and they
+# are not alike:
+#
+#   p9/client_file.go — SetXattr and RemoveXattr, which upstream leaves as
+#     ENOSYS. p9LBackend calls them, so this half is part of the product: a
+#     build without it mounts fine and fails every xattr write. Upstream
+#     already implements the read half (GetXattr, ListXattrs).
+#
+#   fsimpl/localfs/localfs.go — chmod and utimes in the p9ufs test server,
+#     which silently drops them. Test-only; nothing outside live_test.go
+#     imports fsimpl.
+#
+# Both are local to the build and change no module dependency, so the client
+# half ships in a binary whose go.mod advertises stock p9. Retiring it means
+# landing it upstream. scriptlib_dir is the directory holding this library.
 prepare_p9_module() {
 	local dest=${1:?"usage: prepare_p9_module dest"}
 	local src
@@ -112,7 +122,7 @@ prepare_p9_module() {
 	mkdir -p "$dest"
 	cp -R "$src/." "$dest/"
 	chmod -R u+w "$dest"
-	patch -d "$dest" -p1 < "$scriptlib_dir/p9-v0.4.1-9pfs.patch"
+	patch -d "$dest" -p1 < "$scriptlib_dir/p9-9pfs.patch"
 }
 
 ninepfs_active_mounts() {

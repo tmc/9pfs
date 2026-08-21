@@ -5,14 +5,12 @@ github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym
 github.com/ebitengine/purego v0.10.1 h1:dewVBCBT2GaMu1SrNTYxQhgQBethzfhiwvZiLGP/qyY=
 github.com/ebitengine/purego v0.10.1/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20200222043503-6f7a984d4dc4/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
-github.com/hugelgupf/p9 v0.4.1 h1:04RUBWSYlvP38QX8At5VXnMTg9qNEnbP/548aMLtfsk=
-github.com/hugelgupf/p9 v0.4.1/go.mod h1:LoNwfBWP+QlCkjS1GFNylCthRIk/TkMZd6ICTbC+hrI=
+github.com/hugelgupf/p9 v0.4.2-0.20260625151848-3fd948847ea4 h1:OY6zk2TkU5+bSQzCmL2IZntZOrnynhOI6AXHeXsDb8M=
+github.com/hugelgupf/p9 v0.4.2-0.20260625151848-3fd948847ea4/go.mod h1:LoNwfBWP+QlCkjS1GFNylCthRIk/TkMZd6ICTbC+hrI=
 github.com/hugelgupf/socketpair v0.0.0-20230822150718-707395b1939a h1:Nq7wDsqsVBUBfGn8yB1M028ShWTKTtZBcafaTJ35N0s=
 github.com/hugelgupf/socketpair v0.0.0-20230822150718-707395b1939a/go.mod h1:71Bqb5Fh9zPHF8jwdmMEmJObzr25Mx5pWLbDBMMEn6E=
 github.com/josharian/native v1.0.1-0.20221213033349-c1e37c09b531/go.mod h1:7X/raswPFr05uY3HiLlYeyQntB6OO7E/d2Cu7qoaN2w=
 github.com/pierrec/lz4/v4 v4.1.14/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
-github.com/tmc/apple v0.6.13-0.20260624042530-fabcc532897d h1:6GRkkUgLSDb6cn5VpZiX3pPbUtPQh86zXjuIAYVGy3Q=
-github.com/tmc/apple v0.6.13-0.20260624042530-fabcc532897d/go.mod h1:QJV85Y1rc4sDQtuBobmYe4mIz5akPLzm3caYmVEmdvE=
 github.com/tmc/apple v0.6.13-0.20260625191638-06d61dee95ba h1:lFVTIJ/U7K4jcTwfITfqYE8nz5X6w0NNOx1cRkRODdE=
 github.com/tmc/apple v0.6.13-0.20260625191638-06d61dee95ba/go.mod h1:QJV85Y1rc4sDQtuBobmYe4mIz5akPLzm3caYmVEmdvE=
 github.com/u-root/uio v0.0.0-20230305220412-3e8cd9d6bf63 h1:YcojQL98T/OO+rybuzn2+5KrD5dBwXIvYBvQ2cD3Avg=

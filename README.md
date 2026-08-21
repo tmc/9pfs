@@ -164,11 +164,20 @@ beyond the local-user or anonymous attach defaults.
 ./test-live.sh [9p2000|9p2000l]   # TestLive against a disposable server (default: both dialects)
 ```
 
-`test-live.sh` patches a temporary copy of `github.com/hugelgupf/p9@v0.4.1`
-(`prepare_p9_module` in `scriptlib.sh`): the upstream `p9ufs` server ignores
-chmod and mtime and its client xattr methods return `ENOSYS`, so the patch adds
-them to exercise the FSKit path. It is local to the build and does not change
-module dependencies.
+Both `test-live.sh` and `build-appex.sh` patch a temporary copy of
+`github.com/hugelgupf/p9` (`prepare_p9_module` in `scriptlib.sh`), and the two
+halves of `p9-9pfs.patch` differ in reach:
+
+  - `p9/client_file.go` adds `SetXattr` and `RemoveXattr`, which upstream
+    returns `ENOSYS` for. `p9LBackend` calls them, so this half **ships**: a
+    build without it mounts normally and fails every extended-attribute write.
+    The read half (`GetXattr`, `ListXattrs`) is already upstream.
+  - `fsimpl/localfs/localfs.go` teaches the `p9ufs` test server chmod and
+    utimes, which it otherwise accepts and drops. Test-only.
+
+Neither changes a module dependency, which is the uncomfortable part: the
+shipped extension contains p9 code that `go.mod` does not describe. The fix is
+upstreaming the client half, not carrying the patch better.
 
 `.github/workflows/ci.yml` runs `verify-local.sh` on `macos-15` and `macos-26`,
 and reports what FSKit's installed-module list names on each. It stops there:
