@@ -269,11 +269,16 @@ preflight_installed() {
 		local probe
 		probe=$("$app/Contents/MacOS/NinePFSHost" --fskit-probe 2>&1 || true)
 		printf '%s\n' "$probe"
-		if printf '%s\n' "$probe" | grep -q "fskit: $extension_id enabled=true"; then
+		# The probe lists one indented module per line: "<id> enabled=<bool> <path>".
+		if printf '%s\n' "$probe" | grep -qE "^[[:space:]]*$extension_id enabled=true"; then
 			echo "ok: FSKit reports module enabled"
-		elif printf '%s\n' "$probe" | grep -q "fskit: $extension_id enabled=false"; then
+		elif printf '%s\n' "$probe" | grep -qE "^[[:space:]]*$extension_id enabled=false"; then
 			echo "missing: FSKit reports module disabled; enable it in System Settings"
 			echo "hint: $app/Contents/MacOS/NinePFSHost --open-fskit-settings"
+			fail=1
+		elif printf '%s\n' "$probe" | grep -q '^status: Status unavailable'; then
+			echo "missing: FSKit named no third-party module, so it cannot confirm $extension_id"
+			echo "hint: pluginkit -mAvvv -p com.apple.fskit.fsmodule"
 			fail=1
 		else
 			echo "missing: FSKit does not list $extension_id"
