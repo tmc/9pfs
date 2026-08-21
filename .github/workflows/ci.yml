@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # verify runs the same gate as ./verify-local.sh on both macOS versions that
+  # ship FSKit. It builds the extension unsigned: signing needs a provisioning
+  # profile granting com.apple.developer.fskit.fsmodule, which CI does not have.
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sw_vers && xcodebuild -version
+      - run: ./verify-local.sh "$RUNNER_TEMP/9pfs-build"
+
+  # modules records what FSKit's installed-module list hands a freshly built
+  # host app. That list is what the status badge reads, and on macOS 15 it is
+  # reported to name only the modules macOS ships. The job reports rather than
+  # asserts: a runner cannot enable a module, so the list it prints is a
+  # measurement of the API, not of a working install.
+  modules:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: ./build-appex.sh "$RUNNER_TEMP/9pfs-build"
+      - name: probe
+        run: |
+          app=$RUNNER_TEMP/9pfs-build/NinePFSHost.app
+          {
+            echo '## ${{ matrix.os }}'
+            echo '```'
+            sw_vers
+            echo '--- before registration'
+            "$app/Contents/MacOS/NinePFSHost" --fskit-probe
+            pluginkit -a "$app/Contents/Extensions/NinePFSExtension.appex" || true
+            echo '--- pluginkit'
+            pluginkit -mAvvv -p com.apple.fskit.fsmodule || true
+            echo '--- after registration'
+            "$app/Contents/MacOS/NinePFSHost" --fskit-probe
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

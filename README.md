@@ -170,6 +170,13 @@ chmod and mtime and its client xattr methods return `ENOSYS`, so the patch adds
 them to exercise the FSKit path. It is local to the build and does not change
 module dependencies.
 
+`.github/workflows/ci.yml` runs `verify-local.sh` on `macos-15` and `macos-26`,
+and reports what FSKit's installed-module list names on each. It stops there:
+loading the module needs a signature carrying
+`com.apple.developer.fskit.fsmodule`, and enabling it needs the System Settings
+toggle, which no hosted runner can click. Mounting stays a local check
+(`test-installed.sh`).
+
 With the extension installed and enabled, exercise the real mount:
 
 ```sh
