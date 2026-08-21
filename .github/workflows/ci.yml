@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   # verify runs the same gate as ./verify-local.sh on both macOS versions that
-  # ship FSKit. It builds the extension unsigned: signing needs a provisioning
-  # profile granting com.apple.developer.fskit.fsmodule, which CI does not have.
+  # ship FSKit, then probes the app it just built. It builds the extension
+  # unsigned: signing needs a provisioning profile granting
+  # com.apple.developer.fskit.fsmodule, which CI does not have.
   verify:
     strategy:
       fail-fast: false
@@ -27,31 +28,20 @@ jobs:
       - run: sw_vers && xcodebuild -version
       - run: ./verify-local.sh "$RUNNER_TEMP/9pfs-build"
 
-  # modules records the FSKit modules each macOS version ships, as reported to
-  # a freshly built host app: exfat and msdos on 15, plus ftp on 26. That list
-  # is what the status badge reads, so it is worth watching for change.
-  #
-  # It asserts what it can: the fetch works, and a build carrying its own
-  # extension never reads as "Not installed" — the bug that sent a user to
-  # System Settings for an extension that was already enabled.
-  #
-  # It cannot answer whether macOS 15 hides third-party modules from the app.
-  # Nothing here can register or enable a module — pluginkit -a was tried and
-  # does not — so both versions report only Apple's own modules and the
-  # interesting comparison never happens. That needs a machine where the
-  # extension is installed and toggled on.
-  modules:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-26]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: ./build-appex.sh "$RUNNER_TEMP/9pfs-build"
+      # The probe records the FSKit modules each macOS version ships, as
+      # reported to the host app verify-local.sh just built: exfat and msdos on
+      # 15, plus ftp on 26. That list is what the status badge reads, so it is
+      # worth watching for change.
+      #
+      # It asserts what it can: the fetch works, and a build carrying its own
+      # extension never reads as "Not installed" — the bug that sent a user to
+      # System Settings for an extension that was already enabled.
+      #
+      # It cannot answer whether macOS 15 hides third-party modules from the
+      # app. Nothing here can register or enable a module — pluginkit -a was
+      # tried and does not — so both versions report only Apple's own modules
+      # and the interesting comparison never happens. That needs a machine
+      # where the extension is installed and toggled on.
       - name: probe
         run: |
           app=$RUNNER_TEMP/9pfs-build/NinePFSHost.app
@@ -74,10 +64,10 @@ jobs:
             echo "probe reported no system modules" >&2
             exit 1
           fi
-          # The bug this job exists for: the app read an incomplete module list
-          # as proof its own extension was missing. A build carrying the appex
-          # must never say that, whatever the list contains. Requiring the line
-          # to be there keeps the check from passing by going silent.
+          # The bug this check exists for: the app read an incomplete module
+          # list as proof its own extension was missing. A build carrying the
+          # appex must never say that, whatever the list contains. Requiring the
+          # line to be there keeps the check from passing by going silent.
           status=$(sed -n 's/^status: //p' <<<"$out")
           if [ -z "$status" ]; then
             echo "probe printed no status line" >&2
