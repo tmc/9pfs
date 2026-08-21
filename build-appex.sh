@@ -58,13 +58,21 @@ host_entitlements=$out/$host_product.entitlements.plist
 rm -rf "$bundle" "$fsbundle" "$app" "$objdir"
 mkdir -p "$macos" "$frameworks" "$objdir"
 
+# find_profile prints the first profile matching bundle id $1, the fskit-module
+# entitlement if $2 is yes, and — when signing — the certificate behind
+# $identity. Without that last test a stale profile for the same bundle id wins
+# on directory order and the build dies at the cert<->profile check with a
+# usable profile sitting right beside it.
 find_profile() {
 	local want_bundle_id=$1
 	local want_fskit=$2
 	local profiles_dir=$HOME/Library/MobileDevice/Provisioning\ Profiles
-	local profile app_id has_fskit
+	local profile app_id has_fskit want_cert got_cert
 
 	[[ -d "$profiles_dir" ]] || return 1
+	if [[ -n "$identity" ]]; then
+		want_cert=$(identity_sha1 "$identity")
+	fi
 	for profile in "$profiles_dir"/*; do
 		[[ -f "$profile" ]] || continue
 		if ! security cms -D -i "$profile" > "$out/profile-search.plist" 2>/dev/null; then
@@ -75,6 +83,16 @@ find_profile() {
 		has_fskit=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.fskit.fsmodule' "$out/profile-search.plist" 2>/dev/null || true)
 		if [[ "$want_fskit" == yes && "$has_fskit" != true ]]; then
 			continue
+		fi
+		if [[ -n "$want_cert" ]]; then
+			got_cert=no
+			while read -r fingerprint; do
+				if [[ "$fingerprint" == "$want_cert" ]]; then
+					got_cert=yes
+					break
+				fi
+			done < <(profile_cert_sha1s "$profile")
+			[[ "$got_cert" == yes ]] || continue
 		fi
 		rm -f "$out/profile-search.plist"
 		printf '%s\n' "$profile"
