@@ -19,13 +19,13 @@ final class ModuleList: ObservableObject {
 
 	// ninepfsBundleID is this app's extension; the UI highlights it among any
 	// other installed FSKit modules.
-	static let ninepfsBundleID = "dev.tmc.apple.examples.fskit.9pfs.extension"
+	nonisolated static let ninepfsBundleID = "dev.tmc.apple.examples.fskit.9pfs.extension"
 
 	var ninepfs: Row? { modules.first { $0.id == Self.ninepfsBundleID } }
 
 	// bundledExtensionURL is the extension embedded in this app bundle, which
 	// macOS registers when the app is launched from its installed location.
-	static let bundledExtensionURL: URL? = {
+	nonisolated static let bundledExtensionURL: URL? = {
 		let extensions = Bundle.main.bundleURL.appendingPathComponent("Contents/Extensions")
 		let entries = (try? FileManager.default.contentsOfDirectory(
 			at: extensions, includingPropertiesForKeys: nil)) ?? []
@@ -44,14 +44,57 @@ final class ModuleList: ObservableObject {
 		// says nothing about whether the module is registered.
 		case unverifiable
 		case notInstalled
+
+		var label: String {
+			switch self {
+			case .checking: return "Checking…"
+			case .enabled: return "Enabled"
+			case .disabled: return "Disabled"
+			case .unverifiable: return "Status unavailable"
+			case .notInstalled: return "Not installed"
+			}
+		}
 	}
 
-	var status: Status {
+	var status: Status { Self.status(modules: modules, loaded: loaded) }
+
+	nonisolated static func status(modules: [Row], loaded: Bool) -> Status {
 		guard loaded else { return .checking }
-		if let ninepfs { return ninepfs.enabled ? .enabled : .disabled }
+		if let ninepfs = modules.first(where: { $0.id == ninepfsBundleID }) {
+			return ninepfs.enabled ? .enabled : .disabled
+		}
 		let sawThirdParty = modules.contains { !$0.id.hasPrefix("com.apple.") }
-		if Self.bundledExtensionURL != nil && !sawThirdParty { return .unverifiable }
+		if bundledExtensionURL != nil && !sawThirdParty { return .unverifiable }
 		return .notInstalled
+	}
+
+	// diagnostics is what the Copy Diagnostics button puts on the pasteboard.
+	// A report that pastes this saves a round trip: the macOS version and the
+	// module list together say whether a missing 9pfs row means anything. The
+	// app is sandboxed and cannot run pluginkit, so it names the command
+	// rather than guessing at registration.
+	var diagnostics: String {
+		Self.diagnostics(modules: modules, error: error, loaded: loaded)
+	}
+
+	nonisolated static func diagnostics(modules: [Row], error: String?, loaded: Bool) -> String {
+		var lines = ["9pfs \(ProcessInfo.processInfo.operatingSystemVersionString)"]
+		lines.append("app: \(Bundle.main.bundleURL.path)")
+		lines.append("bundled extension: \(bundledExtensionURL?.path ?? "missing")")
+		lines.append("status: \(status(modules: modules, loaded: loaded).label)")
+		if let error {
+			lines.append("fetch error: \(error)")
+		}
+		if loaded {
+			lines.append("FSKit modules (\(modules.count)):")
+			for module in modules {
+				lines.append("  \(module.id) enabled=\(module.enabled) \(module.path)")
+			}
+		} else {
+			lines.append("FSKit modules: not fetched")
+		}
+		lines.append("registration: pluginkit -mAvvv -p com.apple.fskit.fsmodule")
+		return lines.joined(separator: "\n") + "\n"
 	}
 
 	func refresh() {
@@ -103,16 +146,6 @@ private struct StatusBadge: View {
 		}
 	}
 
-	private var title: String {
-		switch status {
-		case .checking: return "Checking…"
-		case .enabled: return "Enabled"
-		case .disabled: return "Disabled"
-		case .unverifiable: return "Status unavailable"
-		case .notInstalled: return "Not installed"
-		}
-	}
-
 	private var detail: String {
 		switch status {
 		case .checking:
@@ -135,7 +168,7 @@ private struct StatusBadge: View {
 				.frame(width: 12, height: 12)
 				.padding(.top, 4)
 			VStack(alignment: .leading, spacing: 2) {
-				Text(title)
+				Text(status.label)
 					.font(.headline)
 				Text(detail)
 					.font(.subheadline)
@@ -151,23 +184,24 @@ struct NinePFSHostApp: App {
 	@StateObject private var moduleList = ModuleList()
 
 	init() {
+		// --fskit-probe prints what the Copy Diagnostics button copies, for a
+		// report made from a terminal. It cannot drive ModuleList.refresh:
+		// there is no run loop yet to deliver its main-queue callback.
 		if CommandLine.arguments.contains("--fskit-probe") {
-			print("fskit: bundled extension: \(ModuleList.bundledExtensionURL?.path ?? "missing")")
+			var rows: [ModuleList.Row] = []
+			var failure: String?
 			let semaphore = DispatchSemaphore(value: 0)
 			FSClient.shared.fetchInstalledExtensions { modules, error in
+				rows = (modules ?? []).map {
+					ModuleList.Row(id: $0.bundleIdentifier, enabled: $0.isEnabled, path: $0.url.path)
+				}
 				if let error {
-					print("fskit: fetch installed extensions: \(error)")
-				}
-				for module in modules ?? [] {
-					print("fskit: \(module.bundleIdentifier) enabled=\(module.isEnabled) url=\(module.url.path)")
-				}
-				if !(modules ?? []).contains(where: { !$0.bundleIdentifier.hasPrefix("com.apple.") }) {
-					print("fskit: no third-party module reported; the list is not authoritative here.")
-					print("fskit: check registration with: pluginkit -mAvvv -p com.apple.fskit.fsmodule")
+					failure = String(describing: error)
 				}
 				semaphore.signal()
 			}
-			_ = semaphore.wait(timeout: .now() + 10)
+			let fetched = semaphore.wait(timeout: .now() + 10) == .success
+			print(ModuleList.diagnostics(modules: rows, error: failure, loaded: fetched), terminator: "")
 			exit(0)
 		}
 		if CommandLine.arguments.contains("--open-fskit-settings") {
@@ -185,6 +219,9 @@ struct NinePFSHostApp: App {
 
 private struct ContentView: View {
 	@ObservedObject var moduleList: ModuleList
+	// copied briefly relabels the diagnostics button, which otherwise gives no
+	// sign that anything happened.
+	@State private var copied = false
 
 	// FSKit posts no public notification when an extension is enabled or
 	// disabled, so the app re-fetches on the moments the user is most likely to
@@ -222,6 +259,16 @@ private struct ContentView: View {
 					}
 				}
 				.disabled(moduleList.loading)
+				Button(copied ? "Copied" : "Copy Diagnostics") {
+					NSPasteboard.general.clearContents()
+					NSPasteboard.general.setString(moduleList.diagnostics, forType: .string)
+					copied = true
+					Task {
+						try? await Task.sleep(for: .seconds(2))
+						copied = false
+					}
+				}
+				.disabled(!moduleList.loaded)
 			}
 
 			if let error = moduleList.error {

@@ -59,7 +59,9 @@ mkdir -p ~/9pfs-mnt
 /sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs-mnt
 ```
 
-To see what the app sees, without the app:
+**Copy Diagnostics** in the app puts the macOS version, the module list, and
+what the app made of it on the pasteboard — paste that into a bug report. The
+same text without the app:
 
 ```sh
 /Applications/NinePFSHost.app/Contents/MacOS/NinePFSHost --fskit-probe
