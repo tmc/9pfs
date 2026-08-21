@@ -31,10 +31,14 @@ dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scriptlib.sh
 . "$dir/scriptlib.sh"
 out=${1:-/tmp/9pfs-build}
-bundle_id=${NINEPFS_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs.extension}
-product=${NINEPFS_PRODUCT_NAME:-NinePFSExtension}
-host_product=${NINEPFS_HOST_PRODUCT_NAME:-NinePFSHost}
-host_bundle_id=${NINEPFS_HOST_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs}
+# The bundle ids and product names are constants, not knobs: they are written
+# into the checked-in Info.plists, asserted by verify_signed_build, and baked
+# into the provisioning profiles, so a build that changed them could not pass
+# the repository's own verification.
+bundle_id=dev.tmc.apple.examples.fskit.9pfs.extension
+product=NinePFSExtension
+host_bundle_id=dev.tmc.apple.examples.fskit.9pfs
+host_product=NinePFSHost
 identity=${CODESIGN_IDENTITY:-}
 extension_profile=${NINEPFS_EXTENSION_PROFILE:-}
 host_profile=${NINEPFS_HOST_PROFILE:-}
@@ -163,12 +167,16 @@ prepare_entitlements() {
 		[[ -f "$profile" ]] || { echo "missing provisioning profile: $profile" >&2; exit 1; }
 		verify_profile_app_id "$profile" "$want_bundle_id"
 	fi
-	if [[ -n "$profile" && "$signing_style" == development ]]; then
-		profile_entitlements "$profile" "$entitlements"
-	else
+	if [[ -z "$profile" || "$signing_style" != development ]]; then
 		cp "$base" "$entitlements"
+		return
 	fi
 
+	# Only here are the entitlements derived rather than checked in: a profile's
+	# entitlements carry the team's boilerplate but not necessarily the keys this
+	# file system needs, so add whichever are missing. The static files already
+	# carry all of them.
+	profile_entitlements "$profile" "$entitlements"
 	ensure_bool_entitlement "$entitlements" "com.apple.security.app-sandbox"
 	case "$role" in
 	extension)
@@ -270,7 +278,9 @@ rm -f "${go_archive%.a}.h"
 header=$dir/native/appex/NinePFileSystem.h
 objc_source=$dir/native/appex/NinePFileSystem.m
 objc_object=$objdir/NinePFileSystem.o
-swift_target=${NINEPFS_SWIFT_TARGET:-$(uname -m)-apple-macos15.4}
+# One deployment target drives the Go/C flags above and the Swift/clang target
+# here; two independent settings could silently disagree.
+swift_target=$(uname -m)-apple-macos$deploy_target
 
 xcrun clang -fobjc-arc -fmodules \
 	-target "$swift_target" \
@@ -288,12 +298,7 @@ xcrun swiftc -O -parse-as-library \
 	-Xlinker -rpath -Xlinker @executable_path/../Frameworks \
 	-o "$macos/$product"
 
-/usr/bin/sed \
-	-e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$bundle_id/g" \
-	-e "s/\$(PRODUCT_NAME)/$product/g" \
-	-e "s/\$(EXECUTABLE_NAME)/$product/g" \
-	-e "s/\$(DEVELOPMENT_LANGUAGE)/en/g" \
-	"$dir/native/appex/Info.plist" > "$contents/Info.plist"
+cp "$dir/native/appex/Info.plist" "$contents/Info.plist"
 
 prepare_entitlements "$extension_profile" "$dir/native/appex/NinePFSExtension.entitlements" "$extension_entitlements" extension "$bundle_id"
 if [[ -n "$extension_profile" ]]; then
@@ -321,11 +326,7 @@ xcrun swiftc -O -parse-as-library \
 	-framework SwiftUI \
 	"$dir/native/host/App.swift" \
 	-o "$app/Contents/MacOS/$host_product"
-/usr/bin/sed \
-	-e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$host_bundle_id/g" \
-	-e "s/\$(PRODUCT_NAME)/$host_product/g" \
-	-e "s/\$(EXECUTABLE_NAME)/$host_product/g" \
-	"$dir/native/host/Info.plist" > "$app/Contents/Info.plist"
+cp "$dir/native/host/Info.plist" "$app/Contents/Info.plist"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
 prepare_entitlements "$host_profile" "$dir/native/host/NinePFSHost.entitlements" "$host_entitlements" host "$host_bundle_id"
 if [[ -n "$host_profile" ]]; then

@@ -201,8 +201,8 @@ verify_signed_build() {
 preflight_installed() {
 	local app=${NINEPFS_INSTALLED_APP:-/Applications/NinePFSHost.app}
 	local fsbundle=${NINEPFS_INSTALLED_FSBUNDLE:-/Library/Filesystems/9pfs.fs}
-	local host_id=${NINEPFS_HOST_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs}
-	local extension_id=${NINEPFS_BUNDLE_ID:-dev.tmc.apple.examples.fskit.9pfs.extension}
+	local host_id=dev.tmc.apple.examples.fskit.9pfs
+	local extension_id=dev.tmc.apple.examples.fskit.9pfs.extension
 	local fail=0
 
 	_preflight_profile_value() {
