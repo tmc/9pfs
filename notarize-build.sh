@@ -125,7 +125,14 @@ for _ in 1 2 3; do
 done
 [[ -n "$staple_ok" ]] || echo "notarize-build: stapler validate flaky (network); relying on Gatekeeper below" >&2
 
+# The Gatekeeper assessment is the authority, and it is this script's job to
+# make it: callers take a zero exit as proof the app is notarized and stapled.
 echo "notarize-build: Gatekeeper assessment"
-spctl -a -vvv --type install "$app" 2>&1 || true
+assessment=$(spctl -a -vvv --type install "$app" 2>&1 || true)
+printf '%s\n' "$assessment"
+case "$assessment" in
+*"source=Notarized Developer ID"*) ;;
+*) die "$app is not notarized/stapled" ;;
+esac
 
 echo "notarize-build: done — $app is notarized and stapled"

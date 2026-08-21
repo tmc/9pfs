@@ -41,24 +41,14 @@ CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes "$dir/build-appex.sh" "$build_di
 verify_signed_build "$build_dir"
 
 echo "release: notarizing"
-# notarize-build.sh is itself gated; pass the confirmation through.
-CONFIRM_9PFS_NOTARIZE="${CONFIRM_9PFS_NOTARIZE:-}" "$dir/notarize-build.sh" "$build_dir"
+# notarize-build.sh owns the notarization gate and the staple verification: it
+# prints its plan and stops when unconfirmed, and exits non-zero unless the app
+# ends up notarized and stapled. This script only decides what to do next.
+"$dir/notarize-build.sh" "$build_dir"
 if [[ "${CONFIRM_9PFS_NOTARIZE:-}" != yes ]]; then
 	echo
 	echo "release: stopping after build — set CONFIRM_9PFS_NOTARIZE=yes to notarize+package" >&2
 	exit 0
-fi
-
-# A stapled app carries its ticket offline; confirm before packaging. stapler
-# validate's CloudKit lookup is flaky, so retry, then fall back to Gatekeeper,
-# which reads the stapled ticket without the network.
-staple_ok=
-for _ in 1 2 3; do
-	if xcrun stapler validate "$app" >/dev/null 2>&1; then staple_ok=yes; break; fi
-done
-if [[ -z "$staple_ok" ]]; then
-	spctl -a -vvv --type install "$app" 2>&1 | grep -q 'source=Notarized Developer ID' ||
-		die "app is not notarized/stapled: $app"
 fi
 
 echo "release: packaging $asset"
