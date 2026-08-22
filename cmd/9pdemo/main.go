@@ -29,7 +29,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hugelgupf/p9/fsimpl/localfs"
 	"github.com/hugelgupf/p9/p9"
 )
 
@@ -99,7 +98,7 @@ func main() {
 
 	// Serve returns the listener's error once it is closed; that is the
 	// expected way to stop, not a failure.
-	p9.NewServer(localfs.Attacher(dir)).Serve(ln)
+	p9.NewServer(newDemoAttacher(dir)).Serve(ln)
 }
 
 func writeSample(dir string) error {
