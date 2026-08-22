@@ -166,7 +166,7 @@ private struct StatusBadge: View {
 		case .checking:
 			return "Checking whether the 9pfs file system is switched on."
 		case .enabled:
-			return "9pfs is ready. Point this at a 9P server of your own and run it in Terminal:"
+			return "9pfs is ready. Example — replace HOST with your 9P server's address:"
 		case .disabled:
 			return "9pfs is installed but switched off. Open System Settings below and turn on “9pfs” under File System Extensions."
 		case .unverifiable:
@@ -179,21 +179,21 @@ private struct StatusBadge: View {
 	// command is the one thing a person needs to copy once 9pfs is working. It
 	// includes the mkdir: mount reports a missing mount point as "invalid file
 	// system", which reads as a problem with 9pfs rather than with the argument.
+	// HOST stays a visible placeholder rather than a plausible-looking default,
+	// because a real address that happens to have nothing behind it fails with
+	// "Connection refused" and looks like a broken file system.
 	private var command: String? {
 		guard status == .enabled else { return nil }
 		return """
 			mkdir -p ~/9pfs
-			/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs
+			/sbin/mount -F -t 9pfs 'ninep://HOST:5640?dialect=9p2000l' ~/9pfs
 			"""
 	}
 
 	private var hint: String? {
 		switch status {
 		case .enabled:
-			// Both parts of the example are placeholders, and the failure is
-			// unhelpful if they are taken literally: with nothing listening the
-			// mount fails with "Connection refused".
-			return "127.0.0.1:5640 is an example — use your server's address. The folder must exist before you mount onto it."
+			return "Use 127.0.0.1 if the server runs on this Mac. The folder must exist before you mount onto it."
 		case .unverifiable:
 			// Here the actionable step is checking whether the download arrived
 			// intact, not anything about FSKit.
