@@ -85,6 +85,15 @@ var stringToErrno = []struct {
 // sites, and guarantees no operation is missed.
 type errnoBackend struct{ backend }
 
+// Embedding the backend interface promotes only that interface's methods, so
+// the optional capability interfaces on the wrapped concrete type are hidden
+// behind the wrapper: every mount reported no symbolic links and no hard
+// links, including 9P2000.L mounts where both work. Forward them by hand. A
+// new capability interface needs a line here too, which is the cost of
+// wrapping an interface rather than a type.
+func (b errnoBackend) supportsSymlinks() bool  { return supportsSymlinks(b.backend) }
+func (b errnoBackend) supportsHardLinks() bool { return supportsHardLinks(b.backend) }
+
 func (b errnoBackend) Stat(name string) (nodeInfo, error) {
 	info, err := b.backend.Stat(name)
 	return info, backendError(err)
