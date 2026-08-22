@@ -67,6 +67,7 @@ mkdir "$mnt/codex-dir"
 printf 'written through mounted 9pfs\n' >"$mnt/codex-dir/a.txt"
 cat "$mnt/codex-dir/a.txt"
 mv "$mnt/codex-dir/a.txt" "$mnt/codex-dir/b.txt"
+test ! -e "$mnt/codex-dir/a.txt" || die "rename left the source behind"
 truncate -s 8 "$mnt/codex-dir/b.txt"
 test "$(cat "$mnt/codex-dir/b.txt")" = "written "
 chmod 600 "$mnt/codex-dir/b.txt"
@@ -81,9 +82,23 @@ if [[ "$url" == *9p2000l* ]]; then
 	test "$(xattr -p user.codex "$mnt/codex-dir/b.txt")" = "value"
 	xattr -d user.codex "$mnt/codex-dir/b.txt"
 	rm "$mnt/codex-dir/sym" "$mnt/codex-dir/hard"
+	test ! -e "$mnt/codex-dir/sym" || die "remove reported success but sym is still there"
+	test ! -e "$mnt/codex-dir/hard" || die "remove reported success but hard is still there"
 fi
 
-rm "$mnt/codex-dir/b.txt"
+# Rename onto a name that already exists: the path an atomic save takes, and
+# the one a rename to a fresh name never reaches.
+printf 'over\n' >"$mnt/codex-dir/over.txt"
+mv "$mnt/codex-dir/b.txt" "$mnt/codex-dir/over.txt" || die "rename over an existing file failed"
+test ! -e "$mnt/codex-dir/b.txt" || die "rename over an existing file left the source behind"
+test "$(cat "$mnt/codex-dir/over.txt")" = "written " || die "rename over an existing file did not replace it"
+
+# A zero exit from rm is not a removal. Asserting only that these commands
+# succeed is what let a remove that silently did nothing pass here while this
+# script printed "remove ok".
+rm "$mnt/codex-dir/over.txt"
+test ! -e "$mnt/codex-dir/over.txt" || die "remove reported success but the file is still there"
 rmdir "$mnt/codex-dir"
+test ! -e "$mnt/codex-dir" || die "rmdir reported success but the directory is still there"
 
 echo "9pfs: installed FSKit mount read/write/rename/chmod/mtime/truncate/link/xattr/remove ok"

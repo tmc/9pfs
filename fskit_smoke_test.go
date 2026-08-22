@@ -663,15 +663,65 @@ func fskitSmokeInPool() error {
 		return callbackErr
 	}
 
+	if _, ok := backend.files["renamed.txt"]; !ok {
+		return errors.New("rename reported success but renamed.txt is not there")
+	}
+
+	// Rename onto a name that already exists. This is the path an atomic save
+	// takes -- write a temporary file, then rename it over the original -- and
+	// it is the case the plain rename above does not reach, because there the
+	// destination is a fresh name and overItem is nil.
+	targetName := fskit.NewFileNameWithString("target.txt")
+	var target objc.ID
+	targetReply := objc.NewBlock(func(_ objc.Block, item objc.ID, actualName objc.ID, errID objc.ID) {
+		if errID != 0 {
+			callbackErr = fmt.Errorf("create target returned error %d", errID)
+			return
+		}
+		target = item
+	})
+	defer targetReply.Release()
+	objc.Send[struct{}](volume, objc.Sel("createItemNamed:type:inDirectory:attributes:replyHandler:"), targetName.GetID(), fskit.FSItemTypeFile, root, objc.ID(0), objc.ID(targetReply))
+	if callbackErr != nil {
+		return callbackErr
+	}
+
+	overReply := objc.NewBlock(func(_ objc.Block, actualName objc.ID, errID objc.ID) {
+		if errID != 0 {
+			callbackErr = fmt.Errorf("rename over an existing item returned error %d", errID)
+			return
+		}
+		if fskit.FSFileNameFromID(actualName).String() != "target.txt" {
+			callbackErr = errors.New("rename over an existing item returned unexpected name")
+		}
+	})
+	defer overReply.Release()
+	objc.Send[struct{}](volume, objc.Sel("renameItem:inDirectory:named:toNewName:inDirectory:overItem:replyHandler:"), created, root, renamed.GetID(), targetName.GetID(), root, target, objc.ID(overReply))
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if _, ok := backend.files["renamed.txt"]; ok {
+		return errors.New("rename over an existing item left the source behind")
+	}
+	if _, ok := backend.files["target.txt"]; !ok {
+		return errors.New("rename over an existing item did not produce the destination")
+	}
+
 	removeReply := objc.NewBlock(func(_ objc.Block, errID objc.ID) {
 		if errID != 0 {
 			callbackErr = fmt.Errorf("remove returned error %d", errID)
 		}
 	})
 	defer removeReply.Release()
-	objc.Send[struct{}](volume, objc.Sel("removeItem:named:fromDirectory:replyHandler:"), created, renamed.GetID(), root, objc.ID(removeReply))
+	objc.Send[struct{}](volume, objc.Sel("removeItem:named:fromDirectory:replyHandler:"), created, targetName.GetID(), root, objc.ID(removeReply))
 	if callbackErr != nil {
 		return callbackErr
+	}
+	// An empty reply block is not proof of a removal. Asserting only that the
+	// reply carried no error is what let a remove that silently did nothing
+	// pass here, and in test-installed.sh, for three releases.
+	if _, ok := backend.files["target.txt"]; ok {
+		return errors.New("remove reported success but the item is still there")
 	}
 
 	return nil
