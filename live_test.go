@@ -166,6 +166,44 @@ func TestLive(t *testing.T) {
 		t.Fatalf("hardlink: %v", err)
 	}
 
+	// A volume must report the link the server now sees, not the attributes
+	// it cached when the file was looked up. The link was made through the
+	// parent directory, so nothing touched this file's own item: answering
+	// from the cache reported one link, and would have gone on reporting a
+	// stale size and mtime for as long as the item lived -- which on a
+	// server shared with other clients is until unmount.
+	if link, err := b.Stat("/dir/renamed.txt"); err != nil {
+		t.Fatalf("stat after hardlink: %v", err)
+	} else if link.Links != 2 {
+		t.Errorf("link count after hardlink = %d, want 2", link.Links)
+	}
+	v := newNinepVolume(b, false)
+	root, err := v.Root()
+	if err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	dir, err := v.Lookup(root, "dir")
+	if err != nil {
+		t.Fatalf("lookup dir: %v", err)
+	}
+	linked, err := v.Lookup(dir, "renamed.txt")
+	if err != nil {
+		t.Fatalf("lookup renamed.txt: %v", err)
+	}
+	if _, err := b.CreateLink("/dir/renamed.txt", "/dir/hard2.txt"); err != nil {
+		t.Fatalf("second hardlink: %v", err)
+	}
+	// The item was looked up before this link existed, so a cached answer
+	// says 2 and a fresh one says 3.
+	if attrs, err := v.Attributes(linked); err != nil {
+		t.Fatalf("attributes after second hardlink: %v", err)
+	} else if attrs.LinkCount() != 3 {
+		t.Errorf("volume reports %d links after a link made behind its back, want 3", attrs.LinkCount())
+	}
+	if err := b.Remove("/dir/hard2.txt"); err != nil {
+		t.Fatalf("remove second hardlink: %v", err)
+	}
+
 	xattr := []byte("xattr through 9p")
 	if err := b.SetXattr("/dir/renamed.txt", "user.codex", xattr); err != nil {
 		t.Fatalf("setxattr: %v", err)

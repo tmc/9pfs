@@ -317,13 +317,28 @@ func (v *ninepVolume) forgetPathLocked(it *ninepItem) {
 	}
 }
 
+// Attributes asks the server rather than answering from the item's cached
+// attributes. The cache is filled when an item is first looked up and refreshed
+// only by operations that go through the item itself, so anything changing a
+// file by another route leaves it stale: a hard link created through the parent
+// directory left the file reporting one link, and on a file system where other
+// clients share the server, any of them writing leaves every cached attribute
+// wrong for as long as the item lives.
+//
+// This costs a walk and a getattr per request. The kernel caches attributes
+// above us, so the alternative is not fewer round trips but wrong answers.
 func (v *ninepVolume) Attributes(item fskitbridge.Item) (fskit.FSItemAttributes, error) {
 	it, err := v.item(item)
 	if err != nil {
 		return fskit.FSItemAttributes{}, err
 	}
+	info, err := v.backend.Stat(v.pathOf(it))
+	if err != nil {
+		return fskit.FSItemAttributes{}, err
+	}
+	v.setInfo(it, info)
 	v.mu.Lock()
-	info, id, parentID := it.info, it.id, it.parentID
+	id, parentID := it.id, it.parentID
 	v.mu.Unlock()
 	return attributesForNode(info, id, parentID), nil
 }
