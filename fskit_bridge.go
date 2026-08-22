@@ -619,14 +619,13 @@ func (v *ninepVolume) SupportedCapabilities() fskit.FSVolumeSupportedCapabilitie
 		capabilities.SetSupportsHardLinks(true)
 	}
 	if v.persistentIDs {
-		// Claimed together: DocumentRevisions stores a document's version
-		// history against the volume's object ID, so both the ID and the
-		// document ID have to outlive the mount for versioning to mean
-		// anything. Without these, applications that version documents --
-		// TextEdit among them -- warn that the volume cannot keep older
-		// versions.
+		// This does not buy document version storage, which macOS offers
+		// only on local volumes: an FSKit file system backed by a URL
+		// resource is classified non-local (MNT_LOCAL unset), and nothing
+		// in FSVolumeSupportedCapabilities changes that. Setting
+		// SetSupportsDocumentID alongside this made no difference -- the
+		// kernel still reported no document ID -- so it is not set.
 		capabilities.SetSupportsPersistentObjectIDs(true)
-		capabilities.SetSupportsDocumentID(true)
 	}
 	capabilities.SetCaseFormat(fskit.FSVolumeCaseFormatSensitive)
 	return capabilities

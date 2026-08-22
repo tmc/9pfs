@@ -70,12 +70,17 @@ files, so that a QID path names the same file after a remount:
 /sbin/mount -F -t 9pfs 'ninep://HOST:5640?dialect=9p2000l&persistentids=1' ~/9pfs
 ```
 
-The mount then reports persistent object IDs, which document versioning needs
-— without it TextEdit and friends warn that the volume cannot keep older
-versions of a document. It is a mount option because nothing in 9P
-distinguishes a server that derives QID paths from one that hands out a
-counter, and claiming persistence falsely misfiles version history against
-IDs that mean a different file next time.
+The mount then reports persistent object IDs, so an item keeps its identity
+across a remount and follows a file through a rename. It is a mount option
+because nothing in 9P distinguishes a server that derives QID paths from one
+that hands out a counter, and claiming persistence falsely would hand out IDs
+that mean a different file next time.
+
+This does not enable document version storage. macOS reserves that for local
+volumes, and an FSKit file system backed by a URL resource is classified as
+non-local (`IsLocal` is 0, `MNT_LOCAL` is unset), with no API to assert
+otherwise. TextEdit and other versioning applications warn about it on any
+9pfs mount; saving works, older versions are simply not kept.
 
 ## What works
 
@@ -89,10 +94,15 @@ IDs that mean a different file next time.
 | symlink, readlink, hard link | no | yes |
 | extended attributes | no | yes |
 | open/close, access checks, statistics | yes | yes |
-| persistent object IDs (document versioning) | opt-in | opt-in |
+| persistent object IDs | opt-in | opt-in |
 
 Not implemented: device-node creation, advisory locking, and authentication
 beyond the local-user or anonymous attach defaults.
+
+Out of reach rather than unimplemented: document version storage, which macOS
+offers only on local volumes, and extended-attribute support is not advertised
+to the kernel even where it works — `FSVolumeSupportedCapabilities` has no
+setter for it.
 
 <details>
 <summary><b>If the app cannot read its status, or a mount fails</b></summary>
