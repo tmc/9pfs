@@ -166,7 +166,7 @@ private struct StatusBadge: View {
 		case .checking:
 			return "Checking whether the 9pfs file system is switched on."
 		case .enabled:
-			return "9pfs is ready. Mount a server from Terminal:"
+			return "9pfs is ready. Point this at a 9P server of your own and run it in Terminal:"
 		case .disabled:
 			return "9pfs is installed but switched off. Open System Settings below and turn on “9pfs” under File System Extensions."
 		case .unverifiable:
@@ -176,18 +176,31 @@ private struct StatusBadge: View {
 		}
 	}
 
-	// command is the one thing a person needs to copy once 9pfs is working, and
-	// example is better than syntax: the placeholders are the parts to change.
+	// command is the one thing a person needs to copy once 9pfs is working. It
+	// includes the mkdir: mount reports a missing mount point as "invalid file
+	// system", which reads as a problem with 9pfs rather than with the argument.
 	private var command: String? {
 		guard status == .enabled else { return nil }
-		return "/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs"
+		return """
+			mkdir -p ~/9pfs
+			/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs
+			"""
 	}
 
-	// hint follows the unverifiable case, where the actionable step is checking
-	// whether the download arrived intact rather than anything about FSKit.
 	private var hint: String? {
-		guard status == .unverifiable else { return nil }
-		return "A copy damaged in transit also looks like this. Re-download the disk image if mounting fails."
+		switch status {
+		case .enabled:
+			// Both parts of the example are placeholders, and the failure is
+			// unhelpful if they are taken literally: with nothing listening the
+			// mount fails with "Connection refused".
+			return "127.0.0.1:5640 is an example — use your server's address. The folder must exist before you mount onto it."
+		case .unverifiable:
+			// Here the actionable step is checking whether the download arrived
+			// intact, not anything about FSKit.
+			return "A copy damaged in transit also looks like this. Re-download the disk image if mounting fails."
+		default:
+			return nil
+		}
 	}
 
 	var body: some View {
