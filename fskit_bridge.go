@@ -16,10 +16,10 @@ import (
 
 	"9fans.net/go/plan9"
 	p9 "github.com/hugelgupf/p9/p9"
-	"github.com/tmc/9pfs/internal/fskitbridge"
 	"github.com/tmc/apple/foundation"
 	"github.com/tmc/apple/fskit"
 	"github.com/tmc/apple/objc"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 var ninepShims = fskitbridge.ReplyBlockShims{

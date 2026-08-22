@@ -324,7 +324,7 @@ executable links the archive and calls them before
 
 The Apple framework bindings come from `github.com/tmc/apple` (`foundation`,
 `fskit`, `objc`, …), pinned in `go.mod`. The FSKit bridge is
-`internal/fskitbridge`. Nothing in this repository is generated.
+`github.com/tmc/apple/x/fskitbridge`. Nothing in this repository is generated.
 
 macOS ships `/sbin/mount_9p`, but it only mounts VM-provided virtio 9p by
 IORegistry tag, not arbitrary servers, and does not exercise this bridge. An

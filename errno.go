@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"github.com/hugelgupf/p9/linux"
-	"github.com/tmc/9pfs/internal/fskitbridge"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 // The 9P backends report failures in their own vocabularies: the 9P2000.L

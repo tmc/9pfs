@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/tmc/9pfs/internal/fskitbridge"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 // capableBackend is a backend that claims every optional capability.

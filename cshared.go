@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/tmc/9pfs/internal/fskitbridge"
 	"github.com/tmc/apple/objc"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 func init() {

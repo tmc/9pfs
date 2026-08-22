@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/hugelgupf/p9/linux"
-	"github.com/tmc/9pfs/internal/fskitbridge"
+	"github.com/tmc/apple/x/fskitbridge"
 )
 
 // TestBackendErrorLinuxErrno covers the gap the in-memory smoke backend
