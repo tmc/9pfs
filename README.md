@@ -63,6 +63,20 @@ The default port is 5640 and the default dialect is classic 9P2000. Use
 `ninep://` for installed FSKit mounts (`9p://` parses but is not a valid FSKit
 resource scheme).
 
+Add `persistentids=1` if your server derives its QID paths from the underlying
+files, so that a QID path names the same file after a remount:
+
+```sh
+/sbin/mount -F -t 9pfs 'ninep://HOST:5640?dialect=9p2000l&persistentids=1' ~/9pfs
+```
+
+The mount then reports persistent object IDs, which document versioning needs
+— without it TextEdit and friends warn that the volume cannot keep older
+versions of a document. It is a mount option because nothing in 9P
+distinguishes a server that derives QID paths from one that hands out a
+counter, and claiming persistence falsely misfiles version history against
+IDs that mean a different file next time.
+
 ## What works
 
 | Operation | 9P2000 | 9P2000.L |
@@ -75,6 +89,7 @@ resource scheme).
 | symlink, readlink, hard link | no | yes |
 | extended attributes | no | yes |
 | open/close, access checks, statistics | yes | yes |
+| persistent object IDs (document versioning) | opt-in | opt-in |
 
 Not implemented: device-node creation, advisory locking, and authentication
 beyond the local-user or anonymous attach defaults.

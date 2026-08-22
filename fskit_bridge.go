@@ -86,6 +86,13 @@ type fsConfig struct {
 	network string
 	addr    string
 	aname   string
+
+	// persistentIDs reports that the server's QID paths identify files
+	// persistently, so they can be used as FSKit object IDs. It is a mount
+	// option because nothing in 9P distinguishes a server that derives QID
+	// paths from the underlying file from one that hands out a counter, and
+	// the difference is invisible until a remount. Only the operator knows.
+	persistentIDs bool
 }
 
 func (f *ninepFileSystem) Probe(resource fskit.FSResource) (fskitbridge.ProbeResult, error) {
@@ -113,7 +120,7 @@ func (f *ninepFileSystem) Load(resource fskit.FSResource) (fskitbridge.Volume, e
 		f.config = config
 		f.backend = backend
 	}
-	return newNinepVolume(f.backend), nil
+	return newNinepVolume(f.backend, f.config.persistentIDs), nil
 }
 
 func (f *ninepFileSystem) Unload() error {
@@ -132,6 +139,10 @@ func (f *ninepFileSystem) Unload() error {
 // a set of live items whose paths are rewritten when a directory moves.
 type ninepVolume struct {
 	backend backend
+
+	// persistentIDs makes IDs come from the server's QID paths rather than
+	// from the allocation counter; see [fsConfig].
+	persistentIDs bool
 
 	mu     sync.Mutex
 	ids    map[string]fskit.FSItemID
@@ -161,12 +172,13 @@ var (
 	_ fskitbridge.PathConfVolume     = (*ninepVolume)(nil)
 )
 
-func newNinepVolume(b backend) *ninepVolume {
+func newNinepVolume(b backend, persistentIDs bool) *ninepVolume {
 	return &ninepVolume{
-		backend: b,
-		ids:     make(map[string]fskit.FSItemID),
-		live:    make(map[*ninepItem]struct{}),
-		byPath:  make(map[string]*ninepItem),
+		backend:       b,
+		persistentIDs: persistentIDs,
+		ids:           make(map[string]fskit.FSItemID),
+		live:          make(map[*ninepItem]struct{}),
+		byPath:        make(map[string]*ninepItem),
 	}
 }
 
@@ -198,7 +210,7 @@ func (v *ninepVolume) newItem(path string, parentID fskit.FSItemID, info nodeInf
 		it.info = info
 		return it
 	}
-	it := &ninepItem{path: path, id: v.idForPathLocked(path), parentID: parentID, info: info}
+	it := &ninepItem{path: path, id: v.idForPathLocked(path, info), parentID: parentID, info: info}
 	v.live[it] = struct{}{}
 	v.byPath[path] = it
 	return it
@@ -206,9 +218,17 @@ func (v *ninepVolume) newItem(path string, parentID fskit.FSItemID, info nodeInf
 
 // idForPathLocked returns the stable FSItemID for a cleaned 9p path,
 // minting a new ID on first use.
-func (v *ninepVolume) idForPathLocked(path string) fskit.FSItemID {
+//
+// With persistent IDs the ID is the server's QID path, which identifies the
+// file itself: it survives a remount and follows the file through a rename.
+// Otherwise it is an allocation counter, which is stable only for the life of
+// this mount -- fine for FSKit, but not something to advertise as persistent.
+func (v *ninepVolume) idForPathLocked(path string, info nodeInfo) fskit.FSItemID {
 	if path == "" {
 		return fskit.FSItemIDRootDirectory
+	}
+	if v.persistentIDs && info.QIDPath != 0 {
+		return persistentItemID(info.QIDPath)
 	}
 	if id, ok := v.ids[path]; ok {
 		return id
@@ -219,10 +239,26 @@ func (v *ninepVolume) idForPathLocked(path string) fskit.FSItemID {
 	return id
 }
 
-func (v *ninepVolume) idForPath(path string) fskit.FSItemID {
+// persistentItemID maps a 9P QID path onto an FSItemID, steering clear of the
+// three reserved values. A QID path is an arbitrary uint64 and may collide
+// with them; folding those onto a fixed offset keeps the mapping total and
+// deterministic across mounts, which is what persistence requires.
+func persistentItemID(qidPath uint64) fskit.FSItemID {
+	id := fskit.FSItemID(qidPath)
+	if id <= fskit.FSItemIDRootDirectory {
+		return id + reservedItemIDOffset
+	}
+	return id
+}
+
+// reservedItemIDOffset is where the three reserved FSItemID values are folded
+// to. It is far from any inode number a server is likely to report.
+const reservedItemIDOffset = fskit.FSItemID(1) << 62
+
+func (v *ninepVolume) idForPath(path string, info nodeInfo) fskit.FSItemID {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return v.idForPathLocked(clean9PPath(path))
+	return v.idForPathLocked(clean9PPath(path), info)
 }
 
 // item returns x as a *ninepItem.
@@ -307,7 +343,7 @@ func (v *ninepVolume) ReadDir(dir fskitbridge.Item) ([]fskitbridge.DirEntry, err
 		out = append(out, fskitbridge.DirEntry{
 			Name:       entry.Name,
 			Type:       itemTypeFor(entry),
-			Attributes: attributesForNode(entry, v.idForPath(child9PPath(dirPath, entry.Name)), d.id),
+			Attributes: attributesForNode(entry, v.idForPath(child9PPath(dirPath, entry.Name), entry), d.id),
 		})
 	}
 	return out, nil
@@ -582,6 +618,16 @@ func (v *ninepVolume) SupportedCapabilities() fskit.FSVolumeSupportedCapabilitie
 	if supportsHardLinks(v.backend) {
 		capabilities.SetSupportsHardLinks(true)
 	}
+	if v.persistentIDs {
+		// Claimed together: DocumentRevisions stores a document's version
+		// history against the volume's object ID, so both the ID and the
+		// document ID have to outlive the mount for versioning to mean
+		// anything. Without these, applications that version documents --
+		// TextEdit among them -- warn that the volume cannot keep older
+		// versions.
+		capabilities.SetSupportsPersistentObjectIDs(true)
+		capabilities.SetSupportsDocumentID(true)
+	}
 	capabilities.SetCaseFormat(fskit.FSVolumeCaseFormatSensitive)
 	return capabilities
 }
@@ -789,6 +835,13 @@ func fsConfigForURL(base fsConfig, raw string) (fsConfig, error) {
 	}
 	if v := u.Query().Get("aname"); v != "" {
 		config.aname = v
+	}
+	if v := u.Query().Get("persistentids"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fsConfig{}, fmt.Errorf("bad persistentids %q in %q", v, raw)
+		}
+		config.persistentIDs = b
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "9p", "ninep", "tcp":

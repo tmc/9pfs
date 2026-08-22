@@ -48,6 +48,12 @@ type nodeInfo struct {
 	Mode     uint32
 	Length   uint64
 	Modified uint64
+
+	// QIDPath is the 9P QID path, the protocol's inode equivalent. A server
+	// that derives it from the underlying file (rather than from a counter)
+	// makes it usable as a persistent object ID; see persistentIDs in
+	// fskit_bridge.go. Zero means the backend did not report one.
+	QIDPath uint64
 }
 
 type setAttr struct {
@@ -302,11 +308,17 @@ func (b *p9LBackend) Stat(name string) (nodeInfo, error) {
 		return nodeInfo{}, err
 	}
 	defer file.Close()
-	_, _, attr, err := file.GetAttr(p9.AttrMaskAll)
+	qid, _, attr, err := file.GetAttr(p9.AttrMaskAll)
 	if err != nil {
 		return nodeInfo{}, fmt.Errorf("stat 9p2000.l %s: %w", name, err)
 	}
-	return nodeInfo{Name: path.Base(clean9PPath(name)), Mode: uint32(attr.Mode), Length: attr.Size, Modified: attr.MTimeSeconds}, nil
+	return nodeInfo{
+		Name:     path.Base(clean9PPath(name)),
+		Mode:     uint32(attr.Mode),
+		Length:   attr.Size,
+		Modified: attr.MTimeSeconds,
+		QIDPath:  qid.Path,
+	}, nil
 }
 
 func (b *p9LBackend) ReadDir(name string) ([]nodeInfo, error) {
@@ -335,7 +347,7 @@ func (b *p9LBackend) ReadDir(name string) ([]nodeInfo, error) {
 			child := child9PPath(name, dirent.Name)
 			info, err := b.Stat(child)
 			if err != nil {
-				info = nodeInfo{Name: dirent.Name, Mode: modeFromP9QID(dirent.Type), Length: 0}
+				info = nodeInfo{Name: dirent.Name, Mode: modeFromP9QID(dirent.Type), Length: 0, QIDPath: dirent.QID.Path}
 			}
 			info.Name = dirent.Name
 			nodes = append(nodes, info)
@@ -663,7 +675,13 @@ func (b *p9LBackend) walk(name string) (p9.File, error) {
 }
 
 func nodeInfoFromPlan9Dir(d *plan9.Dir) nodeInfo {
-	return nodeInfo{Name: d.Name, Mode: uint32(d.Mode), Length: d.Length, Modified: uint64(d.Mtime)}
+	return nodeInfo{
+		Name:     d.Name,
+		Mode:     uint32(d.Mode),
+		Length:   d.Length,
+		Modified: uint64(d.Mtime),
+		QIDPath:  d.Qid.Path,
+	}
 }
 
 func modeFromP9QID(qtype p9.QIDType) uint32 {

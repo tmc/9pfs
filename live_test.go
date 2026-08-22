@@ -34,6 +34,24 @@ func TestLive(t *testing.T) {
 		t.Fatalf("/README = %q, want %q", got, want)
 	}
 
+	// QID paths are what persistent object IDs are built on, so check that
+	// this server reports them and keeps them steady. Whether they also
+	// survive a restart of the server is a property of the server, not
+	// something a client can test, which is why the capability is opted
+	// into per mount rather than assumed.
+	readme, err := b.Stat("/README")
+	if err != nil {
+		t.Fatalf("stat /README: %v", err)
+	}
+	switch again, err := b.Stat("/README"); {
+	case err != nil:
+		t.Fatalf("stat /README again: %v", err)
+	case readme.QIDPath == 0:
+		t.Logf("server reports no QID path; it cannot support persistent object IDs")
+	case again.QIDPath != readme.QIDPath:
+		t.Errorf("QID path for /README changed between stats: %d then %d", readme.QIDPath, again.QIDPath)
+	}
+
 	// 9P2000 (export9p) exercises files at the root: no subdirectory or
 	// rename-into-dir. The .L path below adds those plus symlink/hardlink/xattr.
 	file := "/codex.txt"

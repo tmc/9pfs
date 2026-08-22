@@ -6,12 +6,16 @@
 //
 //	9pdemo
 //	mkdir -p ~/9pfs
-//	/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs
+//	/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l&persistentids=1' ~/9pfs
 //
 // The exported files are writable, so a mount can be exercised rather than
-// only listed. Pass -root to export a directory of your own instead; that
-// directory is left alone on exit. The listener is bound to the loopback and
-// -addr cannot move it off: this serves an unauthenticated file system.
+// only listed. The mount command asks for persistent object IDs because this
+// server derives its QID paths from the underlying files, so they identify a
+// file across a remount; document versioning needs that.
+//
+// Pass -root to export a directory of your own instead; that directory is
+// left alone on exit. The listener is bound to the loopback and -addr cannot
+// move it off: this serves an unauthenticated file system.
 package main
 
 import (
@@ -119,7 +123,7 @@ func instructions(dir, addr string) string {
 	fmt.Fprintf(&b, "serving %s on %s (9P2000.L)\n\n", dir, addr)
 	fmt.Fprintf(&b, "Mount it:\n\n")
 	fmt.Fprintf(&b, "    mkdir -p ~/9pfs\n")
-	fmt.Fprintf(&b, "    /sbin/mount -F -t 9pfs 'ninep://%s?dialect=9p2000l' ~/9pfs\n\n", addr)
+	fmt.Fprintf(&b, "    /sbin/mount -F -t 9pfs 'ninep://%s?dialect=9p2000l&persistentids=1' ~/9pfs\n\n", addr)
 	fmt.Fprintf(&b, "Unmount it:\n\n    umount ~/9pfs\n\n")
 	fmt.Fprintf(&b, "Press Ctrl-C to stop.\n\n")
 	return b.String()
