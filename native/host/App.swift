@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 final class ModuleList: ObservableObject {
-	struct Row: Identifiable, Sendable {
+	struct Row: Identifiable, Sendable, Equatable {
 		let id: String
 		let enabled: Bool
 		let path: String
@@ -109,10 +109,17 @@ final class ModuleList: ObservableObject {
 				Row(id: module.bundleIdentifier, enabled: module.isEnabled, path: module.url.path)
 			}
 			DispatchQueue.main.async {
+				// Every assignment here is guarded, because @Published
+				// republishes whenever it is assigned — the same value still
+				// redraws the window. A poll that finds nothing changed has to
+				// touch nothing at all, or the redraw it forces every two
+				// seconds is visible as a flicker.
 				if userInitiated {
 					self.loading = false
 				}
-				self.loaded = true
+				if !self.loaded {
+					self.loaded = true
+				}
 				if let error {
 					let text = String(describing: error)
 					if self.error != text {
@@ -121,12 +128,7 @@ final class ModuleList: ObservableObject {
 					}
 					return
 				}
-				// Publish only on change. The poll runs every two seconds, and
-				// republishing identical rows redraws the list and floods the
-				// unified log for nothing.
-				let changed = rows.map(\.id) != self.modules.map(\.id)
-					|| rows.map(\.enabled) != self.modules.map(\.enabled)
-				if changed {
+				if self.modules != rows {
 					self.modules = rows
 					for module in rows {
 						print("fskit: \(module.id) enabled=\(module.enabled) url=\(module.path)")
