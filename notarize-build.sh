@@ -47,7 +47,8 @@ case "$codesign_report" in
 esac
 
 notary_args=()
-credential=$(resolve_notary_args) || die "no notarization credentials"
+notary_credential=
+resolve_notary_args || die "no notarization credentials"
 
 zip=$build_dir/NinePFSHost.zip
 
@@ -56,7 +57,7 @@ cat <<EOF
 
   app:        $app
   zip:        $zip
-  credential: $credential
+  credential: $notary_credential
 
 Steps:
   1. ditto -c -k --keepParent "$app" "$zip"

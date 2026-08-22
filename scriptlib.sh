@@ -205,16 +205,20 @@ start_9p_server() {
 }
 
 # resolve_notary_args fills the notary_args array with notarytool credentials
-# and prints a one-line description of what it found. Precedence:
-# NINEPFS_NOTARY_PROFILE (a `notarytool store-credentials` keychain profile),
-# then an App Store Connect API key from NINEPFS_ASC_KEY_ID /
+# and notary_credential with a one-line description of what it found.
+# Precedence: NINEPFS_NOTARY_PROFILE (a `notarytool store-credentials` keychain
+# profile), then an App Store Connect API key from NINEPFS_ASC_KEY_ID /
 # NINEPFS_ASC_ISSUER_ID / NINEPFS_ASC_KEY_PATH, else ~/.appstoreconnect.
+#
+# Both results are globals rather than output, because a caller that wrote
+# `cred=$(resolve_notary_args)` would run this in a subshell and silently get
+# an empty notary_args back.
 resolve_notary_args() {
 	local asc_config key_id issuer_id key_path
 
 	if [[ -n "${NINEPFS_NOTARY_PROFILE:-}" ]]; then
 		notary_args=(--keychain-profile "$NINEPFS_NOTARY_PROFILE")
-		echo "keychain profile $NINEPFS_NOTARY_PROFILE"
+		notary_credential="keychain profile $NINEPFS_NOTARY_PROFILE"
 		return 0
 	fi
 
@@ -226,7 +230,7 @@ resolve_notary_args() {
 	key_path=${NINEPFS_ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$key_id.p8}
 	[[ -f "$key_path" ]] || { echo "notary: API key file not found: $key_path (set NINEPFS_ASC_KEY_PATH)" >&2; return 1; }
 	notary_args=(--key "$key_path" --key-id "$key_id" --issuer "$issuer_id")
-	echo "API key $key_id (issuer $issuer_id)"
+	notary_credential="API key $key_id (issuer $issuer_id)"
 }
 
 # notary_submit uploads $1 to Apple's notary service, waits for the verdict,

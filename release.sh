@@ -100,7 +100,8 @@ else
 		--identifier dev.tmc.apple.examples.fskit.9pfs.dmg \
 		--sign "$identity" "$dmg"
 	notary_args=()
-	resolve_notary_args >/dev/null || die "no notarization credentials"
+	notary_credential=
+	resolve_notary_args || die "no notarization credentials"
 	notary_submit "$dmg" "$build_dir" || die "disk image notarization failed"
 	staple_and_verify "$dmg" dmg || die "disk image did not end up notarized and stapled"
 	checksum_for "$dmg"
