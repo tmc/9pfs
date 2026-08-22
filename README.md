@@ -31,6 +31,19 @@ usual cause of the app not being able to read its own status.
 
 ## Mount
 
+The app ships a demo 9P server, so there is something to mount without setting
+one up. It prints the mount command for its own address:
+
+```sh
+/Applications/NinePFSHost.app/Contents/MacOS/9pdemo
+```
+
+It serves a few sample files from a temporary directory, which it removes when
+you stop it. The files are writable, so a mount can be exercised rather than
+only listed.
+
+To mount a server of your own:
+
 ```sh
 mkdir -p ~/9pfs
 /sbin/mount -F -t 9pfs 'ninep://HOST:5640?dialect=9p2000l' ~/9pfs

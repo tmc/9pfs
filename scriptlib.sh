@@ -378,6 +378,23 @@ verify_signed_build() {
 	/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$extension_entitlements" | grep -qx true ||
 		{ echo "verify-signed-build: extension is missing network client entitlement" >&2; rc=1; }
 	rm -f "$host_entitlements" "$extension_entitlements"
+
+	# The demo server is the one bundled binary that must NOT be sandboxed: the
+	# user runs it from a terminal, and the sandbox would deny it the export
+	# directory and the listening socket. Nothing else would catch that, since a
+	# sandboxed demo still signs, ships, and launches — it just fails to serve.
+	local demo=$app/Contents/MacOS/9pdemo demo_entitlements
+	[[ -x "$demo" ]] || { echo "verify-signed-build: missing demo server: $demo" >&2; return 1; }
+	codesign --verify --strict "$demo" ||
+		{ echo "verify-signed-build: demo server is not validly signed" >&2; return 1; }
+	demo_entitlements=$(mktemp)
+	codesign -d --entitlements :- "$demo" >"$demo_entitlements" 2>/dev/null
+	if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$demo_entitlements" 2>/dev/null | grep -qx true; then
+		echo "verify-signed-build: demo server is sandboxed; it must be signed without entitlements" >&2
+		rc=1
+	fi
+	rm -f "$demo_entitlements"
+
 	[[ $rc -eq 0 ]] || return 1
 
 	echo "9pfs: signed build verification ok ($host_id, $extension_id)"

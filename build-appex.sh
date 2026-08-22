@@ -39,6 +39,7 @@ bundle_id=dev.tmc.apple.examples.fskit.9pfs.extension
 product=NinePFSExtension
 host_bundle_id=dev.tmc.apple.examples.fskit.9pfs
 host_product=NinePFSHost
+demo_product=9pdemo
 identity=${CODESIGN_IDENTITY:-}
 extension_profile=${NINEPFS_EXTENSION_PROFILE:-}
 host_profile=${NINEPFS_HOST_PROFILE:-}
@@ -243,6 +244,19 @@ codesign_bundle() {
 	fi
 }
 
+# codesign_tool signs a plain executable with no entitlements at all. Only the
+# demo server uses it: it is an ordinary command the user runs from a terminal,
+# and the app sandbox would deny it the export directory and the listening
+# socket it needs.
+codesign_tool() {
+	local target=$1
+	if [[ "$signing_style" == developer-id ]]; then
+		codesign --force --timestamp --options runtime --sign "$identity" "$target"
+	else
+		codesign --force --timestamp=none --sign "$identity" "$target"
+	fi
+}
+
 # Build the Go filesystem operations as a c-archive. The cshared build tag
 # exports NinePFSInit/NinePFSConfigureFileSystem/NinePFS*Resource for the Swift
 # entrypoint to call. A throwaway module file lets the build resolve the local
@@ -331,6 +345,14 @@ xcrun swiftc -O -parse-as-library \
 	-o "$app/Contents/MacOS/$host_product"
 cp "$dir/native/host/Info.plist" "$app/Contents/Info.plist"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
+
+# Ship the demo 9P server beside the app so the mount example has something to
+# mount. It builds against the same patched p9 as the extension, so the
+# operations the README claims work are the ones the demo actually serves.
+(cd "$dir" && GOWORK=off GOFLAGS="-modfile=$modfile" \
+	MACOSX_DEPLOYMENT_TARGET="$deploy_target" \
+	go build -ldflags "-s -w" -o "$app/Contents/MacOS/$demo_product" ./cmd/9pdemo)
+
 prepare_entitlements "$host_profile" "$dir/native/host/NinePFSHost.entitlements" "$host_entitlements" host "$host_bundle_id"
 if [[ -n "$host_profile" ]]; then
 	cp "$host_profile" "$app/Contents/embedded.provisionprofile"
@@ -340,6 +362,7 @@ if [[ -n "$identity" ]]; then
 	# host app, so the host's seal covers the already-sealed extension.
 	codesign_bundle "$app/Contents/Extensions/$product.appex/Contents/MacOS/$product" "$extension_entitlements"
 	codesign_bundle "$app/Contents/Extensions/$product.appex" "$extension_entitlements"
+	codesign_tool "$app/Contents/MacOS/$demo_product"
 	codesign_bundle "$app" "$host_entitlements"
 fi
 

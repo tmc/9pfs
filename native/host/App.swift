@@ -166,7 +166,7 @@ private struct StatusBadge: View {
 		case .checking:
 			return "Checking whether the 9pfs file system is switched on."
 		case .enabled:
-			return "9pfs is ready. Example — replace HOST with your 9P server's address:"
+			return "9pfs is ready. To see it work, run the bundled demo server in Terminal — it prints the mount command for itself:"
 		case .disabled:
 			return "9pfs is installed but switched off. Open System Settings below and turn on “9pfs” under File System Extensions."
 		case .unverifiable:
@@ -176,24 +176,27 @@ private struct StatusBadge: View {
 		}
 	}
 
-	// command is the one thing a person needs to copy once 9pfs is working. It
-	// includes the mkdir: mount reports a missing mount point as "invalid file
-	// system", which reads as a problem with 9pfs rather than with the argument.
-	// HOST stays a visible placeholder rather than a plausible-looking default,
-	// because a real address that happens to have nothing behind it fails with
-	// "Connection refused" and looks like a broken file system.
+	// command is the one thing a person needs to copy once 9pfs is working, so
+	// it is the demo server rather than a mount: mounting needs a 9P server to
+	// point at, and every failure that comes of not having one — "Connection
+	// refused" from a dead address, "invalid file system" from a missing mount
+	// point — reads as a broken file system rather than a missing argument. The
+	// demo has no such failure mode, and prints the mount command for its own
+	// address once it is listening.
+	//
+	// The path is the running bundle's, not a hardcoded /Applications, so it is
+	// correct wherever the app was opened from.
 	private var command: String? {
 		guard status == .enabled else { return nil }
-		return """
-			mkdir -p ~/9pfs
-			/sbin/mount -F -t 9pfs 'ninep://HOST:5640?dialect=9p2000l' ~/9pfs
-			"""
+		let demo = Bundle.main.bundleURL
+			.appendingPathComponent("Contents/MacOS/9pdemo").path
+		return demo.contains(" ") ? "'\(demo)'" : demo
 	}
 
 	private var hint: String? {
 		switch status {
 		case .enabled:
-			return "Use 127.0.0.1 if the server runs on this Mac. The folder must exist before you mount onto it."
+			return "The demo serves a few sample files from a temporary folder, and removes it when you stop the server. To mount a server of your own instead, put its address in the command the demo prints."
 		case .unverifiable:
 			// Here the actionable step is checking whether the download arrived
 			// intact, not anything about FSKit.
