@@ -122,26 +122,52 @@ func (s *Server) impVolumeSetAttributes(self objc.ID, _ objc.SEL, attrs, item, r
 	if request.IsValid(fskit.FSItemAttributeMode) {
 		mode := request.Mode()
 		set.Mode = &mode
-		consume(request, fskit.FSItemAttributeMode)
+	}
+	if request.IsValid(fskit.FSItemAttributeUID) {
+		uid := request.Uid()
+		set.UID = &uid
+	}
+	if request.IsValid(fskit.FSItemAttributeGID) {
+		gid := request.Gid()
+		set.GID = &gid
+	}
+	if request.IsValid(fskit.FSItemAttributeFlags) {
+		flags := request.Flags()
+		set.Flags = &flags
 	}
 	if request.IsValid(fskit.FSItemAttributeSize) {
 		size := request.Size()
 		set.Size = &size
-		consume(request, fskit.FSItemAttributeSize)
 	}
 	if request.IsValid(fskit.FSItemAttributeAccessTime) {
 		ts := request.AccessTime()
 		set.AccessTime = &ts
-		consume(request, fskit.FSItemAttributeAccessTime)
 	}
 	if request.IsValid(fskit.FSItemAttributeModifyTime) {
 		ts := request.ModifyTime()
 		set.ModifyTime = &ts
-		consume(request, fskit.FSItemAttributeModifyTime)
 	}
-	if err := mutable.SetAttributes(it, set); err != nil {
+	if err := mutable.SetAttributes(it, &set); err != nil {
 		s.replyErr("setAttributes", s.reply.ObjectError(reply, 0, s.errorFor(err)))
 		return
+	}
+	// Report what survived: SetAttributes clears the fields it did not
+	// apply, so what is still set is what the volume consumed.
+	for _, applied := range []struct {
+		set  bool
+		attr fskit.FSItemAttribute
+	}{
+		{set.Mode != nil, fskit.FSItemAttributeMode},
+		{set.UID != nil, fskit.FSItemAttributeUID},
+		{set.GID != nil, fskit.FSItemAttributeGID},
+		{set.Flags != nil, fskit.FSItemAttributeFlags},
+		{set.Size != nil, fskit.FSItemAttributeSize},
+		{set.AccessTime != nil, fskit.FSItemAttributeAccessTime},
+		{set.ModifyTime != nil, fskit.FSItemAttributeModifyTime},
+	} {
+		if applied.set {
+			consume(request, applied.attr)
+		}
 	}
 	updated, err := volume.impl.Attributes(it)
 	if err != nil {

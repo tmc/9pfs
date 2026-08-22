@@ -61,8 +61,15 @@ type DirEntry struct {
 
 // SetAttributes holds the attributes of a set-attributes request.
 // A nil field was not requested.
+//
+// The Server reports back to FSKit only the fields a Volume actually
+// applied, so a Volume that cannot change ownership should leave UID and
+// GID alone rather than failing the whole request.
 type SetAttributes struct {
 	Mode       *uint32
+	UID        *uint32
+	GID        *uint32
+	Flags      *uint32
 	Size       *uint64
 	AccessTime *syscall.Timespec
 	ModifyTime *syscall.Timespec
@@ -85,8 +92,13 @@ type MutableVolume interface {
 	// Server reclaims over after a successful rename.
 	Rename(item Item, srcDir Item, srcName string, dstDir Item, dstName string, over Item) error
 
-	// SetAttributes applies the requested attribute changes to item.
-	SetAttributes(item Item, set SetAttributes) error
+	// SetAttributes applies the requested attribute changes to item. A
+	// field the Volume did not apply must be set to nil, so that the
+	// Server can report to FSKit which attributes were consumed; FSKit
+	// takes an unconsumed attribute as one the file system does not
+	// support, which is how a caller learns that, say, a chown did not
+	// happen rather than believing a silent success.
+	SetAttributes(item Item, set *SetAttributes) error
 
 	// Write writes data to file at offset, returning the number of bytes
 	// written.
