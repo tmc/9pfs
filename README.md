@@ -163,8 +163,8 @@ go mod edit -replace github.com/tmc/apple=/path/to/apple
 
 The build scripts resolve a relative replace target to an absolute path before
 copying `go.mod` into a scratch module (`rewrite_apple_replace` in
-`scriptlib.sh`). Drop the replace and `go get github.com/tmc/apple@<commit>` to
-return to a pinned version.
+`scriptlib.sh`). Drop the replace and `go get github.com/tmc/apple@<version>`
+to return to a published version.
 
 </details>
 
@@ -266,8 +266,8 @@ The Go side is one package. Three files carry the work:
 
   - `backend.go` — the `backend` interface and its 9P implementations
     (`ninePBackend` for 9P2000, `p9LBackend` for 9P2000.L).
-  - `fskit_bridge.go` — implements the `x/fskitbridge` volume interfaces on top
-    of the backend. The shared `fskitbridge.Server` owns the FSKit side: class
+  - `fskit_bridge.go` — implements the `fskitbridge` volume interfaces on top
+    of the backend. The `fskitbridge.Server` owns the FSKit side: class
     registration, operation selectors, item identity, reply blocks, and errno
     reporting.
   - `cshared.go` — the `//export`ed entry points, each a one-line wrapper over a
@@ -285,9 +285,9 @@ c-archive exporting `NinePFSInit` and `NinePFSConfigureFileSystem`; the Swift
 executable links the archive and calls them before
 `UnaryFileSystemExtension.main()`.
 
-The Apple framework bindings and the FSKit bridge come from
-`github.com/tmc/apple` (`foundation`, `fskit`, `objc`, … and `x/fskitbridge`),
-pinned in `go.mod`. Nothing in this repository is generated.
+The Apple framework bindings come from `github.com/tmc/apple` (`foundation`,
+`fskit`, `objc`, …), pinned in `go.mod`. The FSKit bridge is
+`internal/fskitbridge`. Nothing in this repository is generated.
 
 macOS ships `/sbin/mount_9p`, but it only mounts VM-provided virtio 9p by
 IORegistry tag, not arbitrary servers, and does not exercise this bridge. An

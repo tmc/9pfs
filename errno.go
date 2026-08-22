@@ -8,13 +8,13 @@ import (
 	"syscall"
 
 	"github.com/hugelgupf/p9/linux"
-	"github.com/tmc/apple/x/fskitbridge"
+	"github.com/tmc/9pfs/internal/fskitbridge"
 )
 
 // The 9P backends report failures in their own vocabularies: the 9P2000.L
 // client returns linux.Errno (Linux-numbered, and not a syscall.Errno), and
 // the classic 9P2000 client returns plain string errors from the server.
-// x/fskitbridge maps an error to an errno only when it is, wraps, or matches
+// fskitbridge maps an error to an errno only when it is, wraps, or matches
 // a syscall.Errno or one of the io/fs sentinels; a linux.Errno or a bare
 // string matches none of those and would collapse to EIO, losing EACCES,
 // EEXIST, ENOSPC, ENOTEMPTY, and the rest.
@@ -166,7 +166,7 @@ func (b errnoBackend) Preallocate(name string, offset int64, length uint64) (uin
 	return n, backendError(err)
 }
 
-// backendError annotates err with a Darwin syscall.Errno so x/fskitbridge
+// backendError annotates err with a Darwin syscall.Errno so fskitbridge
 // reports the right errno. It returns nil for nil. An error that already
 // carries a syscall.Errno or an io/fs sentinel is returned unchanged, since
 // the bridge already maps those.
@@ -205,7 +205,7 @@ func errnoForBackend(err error) (syscall.Errno, bool) {
 
 // backendErr wraps a backend error with the Darwin errno it maps to. It
 // unwraps to the original error and reports its errno through errors.As, so
-// x/fskitbridge's errnoFor returns the errno.
+// fskitbridge's errnoFor returns the errno.
 type backendErr struct {
 	err   error
 	errno syscall.Errno
