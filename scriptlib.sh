@@ -500,3 +500,28 @@ preflight_installed() {
 	[[ "$fail" -eq 0 ]] || { echo "preflight-installed: failed" >&2; return 1; }
 	echo "9pfs: installed preflight ok"
 }
+
+# build_volcaps compiles native/volcaps/volcaps.c to $1 and prints nothing.
+# The tool reads a mount's getattrlist capabilities; see its source for why a
+# separate program is needed to see them at all.
+build_volcaps() {
+	cc -Wall -Werror -o "$1" "$scriptlib_dir/native/volcaps/volcaps.c" ||
+		{ echo "build_volcaps: compile failed" >&2; return 1; }
+}
+
+# require_capability fails unless the volume mounted at $1 reports capability
+# $2 (a "fmt.NAME" or "int.NAME" key) with value $3 ("yes", "no" or
+# "unclaimed"). $4 is the volcaps binary.
+#
+# Asserting these is the point of the tool: a volume states its capabilities
+# separately from implementing them, so the two can disagree silently. They
+# did, in every release up to v0.1.5, which reported no symbolic links and no
+# hard links on 9P2000.L mounts where both worked.
+require_capability() {
+	local mnt=$1 key=$2 want=$3 volcaps=$4 got
+	got=$("$volcaps" "$mnt" | sed -n "s/^$key=//p")
+	[[ -n "$got" ]] || { echo "require_capability: $key not reported for $mnt" >&2; return 1; }
+	[[ "$got" == "$want" ]] ||
+		{ echo "require_capability: $key=$got for $mnt, want $want" >&2; return 1; }
+	echo "ok: $key=$got"
+}
