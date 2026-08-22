@@ -492,44 +492,45 @@ func (v *ninepVolume) movePaths(oldPath, newPath string) {
 	v.movePathsLocked(oldPath, newPath)
 }
 
-// SetAttributes applies what the dialect can express and clears the rest, so
-// that FSKit reports the untouched attributes as unconsumed rather than
-// letting the caller believe they were applied. Ownership goes to the server
-// only on 9P2000.L; classic 9P2000 names its owners with strings, so a chown
-// there is declined rather than guessed at. File flags have no 9P equivalent
-// in either dialect.
-func (v *ninepVolume) SetAttributes(item fskitbridge.Item, set *fskitbridge.SetAttributes) error {
+// SetAttributes applies what the dialect can express and returns only that,
+// so that FSKit reports the rest as unconsumed rather than letting the caller
+// believe it was applied. Ownership goes to the server only on 9P2000.L;
+// classic 9P2000 names its owners with strings, so a chown there is declined
+// rather than guessed at. File flags have no 9P equivalent in either dialect.
+func (v *ninepVolume) SetAttributes(item fskitbridge.Item, set fskitbridge.SetAttributes) (fskitbridge.SetAttributes, error) {
 	it, err := v.item(item)
 	if err != nil {
-		return err
+		return fskitbridge.SetAttributes{}, err
 	}
+	applied := fskitbridge.SetAttributes{Mode: set.Mode, Size: set.Size}
 	attr := setAttr{Mode: set.Mode, Size: set.Size}
 	if set.AccessTime != nil {
 		if set.AccessTime.Sec < 0 {
-			return syscall.EINVAL
+			return fskitbridge.SetAttributes{}, syscall.EINVAL
 		}
 		seconds := uint64(set.AccessTime.Sec)
 		attr.Accessed = &seconds
+		applied.AccessTime = set.AccessTime
 	}
 	if set.ModifyTime != nil {
 		if set.ModifyTime.Sec < 0 {
-			return syscall.EINVAL
+			return fskitbridge.SetAttributes{}, syscall.EINVAL
 		}
 		seconds := uint64(set.ModifyTime.Sec)
 		attr.Modified = &seconds
+		applied.ModifyTime = set.ModifyTime
 	}
+	// Flags are left out of applied in both dialects: 9P has no chflags.
 	if supportsOwnerChanges(v.backend) {
 		attr.UID, attr.GID = set.UID, set.GID
-	} else {
-		set.UID, set.GID = nil, nil
+		applied.UID, applied.GID = set.UID, set.GID
 	}
-	set.Flags = nil
 	info, err := v.backend.SetAttr(v.pathOf(it), attr)
 	if err != nil {
-		return err
+		return fskitbridge.SetAttributes{}, err
 	}
 	v.setInfo(it, info)
-	return nil
+	return applied, nil
 }
 
 func (v *ninepVolume) Readlink(item fskitbridge.Item) (string, error) {

@@ -47,10 +47,10 @@ func TestCapabilitiesSurviveTheErrnoWrapper(t *testing.T) {
 	}
 }
 
-// TestSetAttributesReportsWhatItDidNotApply checks that SetAttributes clears
-// the fields it could not apply. FSKit takes an unconsumed attribute as one
-// the file system does not support, so leaving a declined chown set would
-// report a silent success to the caller.
+// TestSetAttributesReportsWhatItDidNotApply checks that SetAttributes returns
+// only the fields it applied. FSKit takes an unconsumed attribute as one the
+// file system does not support, so returning a declined chown as applied
+// would report a silent success to the caller.
 func TestSetAttributesReportsWhatItDidNotApply(t *testing.T) {
 	uid, gid, flags := uint32(501), uint32(20), uint32(1)
 
@@ -63,17 +63,22 @@ func TestSetAttributesReportsWhatItDidNotApply(t *testing.T) {
 	}
 	mode := uint32(0600)
 	set := fskitbridge.SetAttributes{Mode: &mode, UID: &uid, GID: &gid, Flags: &flags}
-	if err := v.SetAttributes(root, &set); err != nil {
+	applied, err := v.SetAttributes(root, set)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if set.UID != nil || set.GID != nil {
+	if applied.UID != nil || applied.GID != nil {
 		t.Error("owner reported as applied by a backend that cannot change it")
 	}
-	if set.Flags != nil {
+	if applied.Flags != nil {
 		t.Error("file flags reported as applied; 9P has no equivalent")
 	}
-	if set.Mode == nil {
+	if applied.Mode == nil {
 		t.Error("mode reported as unapplied, but it was")
+	}
+	// The request itself must come back untouched: a caller may keep it.
+	if set.UID != &uid || set.GID != &gid || set.Flags != &flags {
+		t.Error("SetAttributes modified the request it was given")
 	}
 
 	// A backend with owner support keeps the chown.
@@ -81,11 +86,11 @@ func TestSetAttributesReportsWhatItDidNotApply(t *testing.T) {
 	if root, err = v.Root(); err != nil {
 		t.Fatal(err)
 	}
-	set = fskitbridge.SetAttributes{UID: &uid, GID: &gid}
-	if err := v.SetAttributes(root, &set); err != nil {
+	applied, err = v.SetAttributes(root, fskitbridge.SetAttributes{UID: &uid, GID: &gid})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if set.UID == nil || set.GID == nil {
+	if applied.UID == nil || applied.GID == nil {
 		t.Error("owner reported as unapplied by a backend that supports it")
 	}
 }

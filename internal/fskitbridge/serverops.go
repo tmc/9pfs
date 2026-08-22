@@ -147,26 +147,26 @@ func (s *Server) impVolumeSetAttributes(self objc.ID, _ objc.SEL, attrs, item, r
 		ts := request.ModifyTime()
 		set.ModifyTime = &ts
 	}
-	if err := mutable.SetAttributes(it, &set); err != nil {
+	applied, err := mutable.SetAttributes(it, set)
+	if err != nil {
 		s.replyErr("setAttributes", s.reply.ObjectError(reply, 0, s.errorFor(err)))
 		return
 	}
-	// Report what survived: SetAttributes clears the fields it did not
-	// apply, so what is still set is what the volume consumed.
-	for _, applied := range []struct {
-		set  bool
-		attr fskit.FSItemAttribute
+	// Consume what the volume says it applied, not what was asked for.
+	for _, a := range []struct {
+		applied bool
+		attr    fskit.FSItemAttribute
 	}{
-		{set.Mode != nil, fskit.FSItemAttributeMode},
-		{set.UID != nil, fskit.FSItemAttributeUID},
-		{set.GID != nil, fskit.FSItemAttributeGID},
-		{set.Flags != nil, fskit.FSItemAttributeFlags},
-		{set.Size != nil, fskit.FSItemAttributeSize},
-		{set.AccessTime != nil, fskit.FSItemAttributeAccessTime},
-		{set.ModifyTime != nil, fskit.FSItemAttributeModifyTime},
+		{applied.Mode != nil, fskit.FSItemAttributeMode},
+		{applied.UID != nil, fskit.FSItemAttributeUID},
+		{applied.GID != nil, fskit.FSItemAttributeGID},
+		{applied.Flags != nil, fskit.FSItemAttributeFlags},
+		{applied.Size != nil, fskit.FSItemAttributeSize},
+		{applied.AccessTime != nil, fskit.FSItemAttributeAccessTime},
+		{applied.ModifyTime != nil, fskit.FSItemAttributeModifyTime},
 	} {
-		if applied.set {
-			consume(request, applied.attr)
+		if a.applied {
+			consume(request, a.attr)
 		}
 	}
 	updated, err := volume.impl.Attributes(it)
