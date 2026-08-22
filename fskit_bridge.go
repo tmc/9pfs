@@ -133,10 +133,11 @@ func (f *ninepFileSystem) Unload() error {
 type ninepVolume struct {
 	backend backend
 
-	mu   sync.Mutex
-	ids  map[string]fskit.FSItemID
-	next fskit.FSItemID
-	live map[*ninepItem]struct{}
+	mu     sync.Mutex
+	ids    map[string]fskit.FSItemID
+	next   fskit.FSItemID
+	live   map[*ninepItem]struct{}
+	byPath map[string]*ninepItem
 }
 
 type ninepItem struct {
@@ -165,6 +166,7 @@ func newNinepVolume(b backend) *ninepVolume {
 		backend: b,
 		ids:     make(map[string]fskit.FSItemID),
 		live:    make(map[*ninepItem]struct{}),
+		byPath:  make(map[string]*ninepItem),
 	}
 }
 
@@ -178,12 +180,27 @@ func (v *ninepVolume) Root() (fskitbridge.Item, error) {
 	return v.newItem("", fskit.FSItemIDParentOfRoot, info), nil
 }
 
+// newItem returns the item for path, reusing the live item for that path when
+// there is one.
+//
+// The same file has to come back as the same item every time: FSKit correlates
+// items by object identity, so a fresh item per lookup leaves it unable to
+// match a looked-up item against the one an operation names. It responds by not
+// dispatching those operations at all -- unlink reported success and removed
+// nothing, and renaming onto an existing name failed with ENOENT, neither
+// reaching this file system.
 func (v *ninepVolume) newItem(path string, parentID fskit.FSItemID, info nodeInfo) *ninepItem {
 	path = clean9PPath(path)
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if it, ok := v.byPath[path]; ok {
+		it.parentID = parentID
+		it.info = info
+		return it
+	}
 	it := &ninepItem{path: path, id: v.idForPathLocked(path), parentID: parentID, info: info}
 	v.live[it] = struct{}{}
+	v.byPath[path] = it
 	return it
 }
 
@@ -249,7 +266,18 @@ func (v *ninepVolume) Reclaim(item fskitbridge.Item) {
 	if it, ok := item.(*ninepItem); ok {
 		v.mu.Lock()
 		delete(v.live, it)
+		v.forgetPathLocked(it)
 		v.mu.Unlock()
+	}
+}
+
+// forgetPathLocked drops the by-path entry for it, if it is still the item
+// registered under that path. The guard matters: a file that was removed and
+// created again has a different item under the same path, and the old item's
+// reclaim must not evict the new one.
+func (v *ninepVolume) forgetPathLocked(it *ninepItem) {
+	if v.byPath[it.path] == it {
+		delete(v.byPath, it.path)
 	}
 }
 
@@ -341,6 +369,9 @@ func (v *ninepVolume) Remove(dir fskitbridge.Item, name string, item fskitbridge
 	}
 	v.mu.Lock()
 	delete(v.ids, path)
+	if it, ok := v.byPath[path]; ok {
+		v.forgetPathLocked(it)
+	}
 	v.mu.Unlock()
 	return nil
 }
@@ -398,10 +429,24 @@ func (v *ninepVolume) movePathsLocked(oldPath, newPath string) {
 		delete(v.ids, m.from)
 		v.ids[m.to] = id
 	}
+	// Collect first, then apply: rewriting by-path entries while walking them
+	// could evict an item that another one is about to move onto.
+	type itemMove struct {
+		it *ninepItem
+		to string
+	}
+	var itemMoves []itemMove
 	for it := range v.live {
 		if np, ok := moved(it.path); ok {
-			it.path = np
+			itemMoves = append(itemMoves, itemMove{it, np})
 		}
+	}
+	for _, m := range itemMoves {
+		v.forgetPathLocked(m.it)
+	}
+	for _, m := range itemMoves {
+		m.it.path = m.to
+		v.byPath[m.to] = m.it
 	}
 }
 
