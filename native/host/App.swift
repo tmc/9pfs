@@ -164,16 +164,30 @@ private struct StatusBadge: View {
 	private var detail: String {
 		switch status {
 		case .checking:
-			return "Reading FSKit module state."
+			return "Checking whether the 9pfs file system is switched on."
 		case .enabled:
-			return "Ready to mount. Use /sbin/mount -F -t 9pfs."
+			return "9pfs is ready. Mount a server from Terminal:"
 		case .disabled:
-			return "Turn on “9pfs” in System Settings > General > Login Items & Extensions > File System Extensions."
+			return "9pfs is installed but switched off. Open System Settings below and turn on “9pfs” under File System Extensions."
 		case .unverifiable:
-			return "macOS is reporting only its own FSKit modules to this app, so the module's state cannot be read here. A damaged copy of this app does that; check with “codesign -vv --deep --strict” and re-extract the download with “ditto -x -k” if it complains. If “9pfs” appears in System Settings it is registered, and mounting works regardless."
+			return "macOS is telling this app about its own file systems only, so 9pfs cannot report whether it is switched on. Mounting still works. If “9pfs” appears in System Settings, it is installed correctly."
 		case .notInstalled:
-			return "The 9pfs FSKit module is not registered. Copy the app to /Applications and open it once, then enable it in System Settings."
+			return "9pfs is not registered with macOS yet. Move this app to your Applications folder and open it again, then turn on “9pfs” in System Settings."
 		}
+	}
+
+	// command is the one thing a person needs to copy once 9pfs is working, and
+	// example is better than syntax: the placeholders are the parts to change.
+	private var command: String? {
+		guard status == .enabled else { return nil }
+		return "/sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' ~/9pfs"
+	}
+
+	// hint follows the unverifiable case, where the actionable step is checking
+	// whether the download arrived intact rather than anything about FSKit.
+	private var hint: String? {
+		guard status == .unverifiable else { return nil }
+		return "A copy damaged in transit also looks like this. Re-download the disk image if mounting fails."
 	}
 
 	var body: some View {
@@ -182,13 +196,27 @@ private struct StatusBadge: View {
 				.fill(color)
 				.frame(width: 12, height: 12)
 				.padding(.top, 4)
-			VStack(alignment: .leading, spacing: 2) {
+			VStack(alignment: .leading, spacing: 4) {
 				Text(status.label)
 					.font(.headline)
 				Text(detail)
 					.font(.subheadline)
 					.foregroundStyle(.secondary)
 					.fixedSize(horizontal: false, vertical: true)
+				if let command {
+					Text(command)
+						.font(.system(.caption, design: .monospaced))
+						.textSelection(.enabled)
+						.padding(.vertical, 4)
+						.padding(.horizontal, 6)
+						.background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+				}
+				if let hint {
+					Text(hint)
+						.font(.caption)
+						.foregroundStyle(.secondary)
+						.fixedSize(horizontal: false, vertical: true)
+				}
 			}
 		}
 	}
@@ -251,7 +279,7 @@ private struct ContentView: View {
 		VStack(alignment: .leading, spacing: 16) {
 			Text("9pfs")
 				.font(.largeTitle)
-			Text("Mounts a 9P server through macOS FSKit. The module lives in the bundled app extension.")
+			Text("Lets this Mac mount 9P file servers as volumes. Keep this app in your Applications folder — it carries the file system itself.")
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
 
@@ -291,31 +319,41 @@ private struct ContentView: View {
 			if moduleList.modules.count > 1 || (moduleList.ninepfs == nil && !moduleList.modules.isEmpty) {
 				Divider()
 				Text(moduleList.status == .unverifiable
-					? "FSKit modules visible to this app (no third-party module is being reported)"
-					: "All installed FSKit modules")
+					? "File system extensions this app can see. It is not being told about any third-party ones, including its own."
+					: "File system extensions installed on this Mac")
 					.font(.caption)
 					.foregroundStyle(.secondary)
 					.fixedSize(horizontal: false, vertical: true)
-				List(moduleList.modules) { module in
-					HStack(spacing: 8) {
-						Circle()
-							.fill(module.enabled ? Color.green : Color.orange)
-							.frame(width: 8, height: 8)
-						VStack(alignment: .leading) {
-							Text(module.id)
-							Text(module.path)
-								.font(.caption)
-								.foregroundStyle(.secondary)
+				// A plain stack rather than a List: the list never scrolls (a Mac
+				// has a handful of these), and a List would claim the window's
+				// remaining height instead of letting it close up around the
+				// content.
+				VStack(alignment: .leading, spacing: 6) {
+					ForEach(moduleList.modules) { module in
+						HStack(alignment: .top, spacing: 8) {
+							Circle()
+								.fill(module.enabled ? Color.green : Color.orange)
+								.frame(width: 8, height: 8)
+								.padding(.top, 5)
+							VStack(alignment: .leading, spacing: 1) {
+								Text(module.id == ModuleList.ninepfsBundleID ? "\(module.id) — this app" : module.id)
+									.font(.callout)
+								Text(module.path)
+									.font(.caption)
+									.foregroundStyle(.secondary)
+									.lineLimit(1)
+									.truncationMode(.middle)
+							}
 						}
 					}
 				}
-				.frame(minHeight: 120)
+				.textSelection(.enabled)
 			}
 
 			Spacer(minLength: 0)
 		}
 		.padding(24)
-		.frame(minWidth: 480, idealWidth: 520, minHeight: 600, idealHeight: 680)
+		.frame(minWidth: 520, idealWidth: 560)
 		.task {
 			moduleList.refresh()
 		}
