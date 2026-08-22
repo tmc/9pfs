@@ -71,20 +71,21 @@ find_profile() {
 	local want_bundle_id=$1
 	local want_fskit=$2
 	local profiles_dir=$HOME/Library/MobileDevice/Provisioning\ Profiles
-	local profile app_id has_fskit want_cert got_cert
+	local profile app_id has_fskit want_cert got_cert plist
 
 	[[ -d "$profiles_dir" ]] || return 1
+	plist=$(mktemp)
 	if [[ -n "$identity" ]]; then
 		want_cert=$(identity_sha1 "$identity")
 	fi
 	for profile in "$profiles_dir"/*; do
 		[[ -f "$profile" ]] || continue
-		if ! security cms -D -i "$profile" > "$out/profile-search.plist" 2>/dev/null; then
+		if ! security cms -D -i "$profile" > "$plist" 2>/dev/null; then
 			continue
 		fi
-		app_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$out/profile-search.plist" 2>/dev/null || true)
+		app_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$plist" 2>/dev/null || true)
 		[[ "${app_id#*.}" == "$want_bundle_id" ]] || continue
-		has_fskit=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.fskit.fsmodule' "$out/profile-search.plist" 2>/dev/null || true)
+		has_fskit=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.fskit.fsmodule' "$plist" 2>/dev/null || true)
 		if [[ "$want_fskit" == yes && "$has_fskit" != true ]]; then
 			continue
 		fi
@@ -98,21 +99,23 @@ find_profile() {
 			done < <(profile_cert_sha1s "$profile")
 			[[ "$got_cert" == yes ]] || continue
 		fi
-		rm -f "$out/profile-search.plist"
+		rm -f "$plist"
 		printf '%s\n' "$profile"
 		return 0
 	done
-	rm -f "$out/profile-search.plist"
+	rm -f "$plist"
 	return 1
 }
 
 profile_entitlements() {
 	local profile=$1
 	local entitlements=$2
+	local plist
 
-	security cms -D -i "$profile" > "$out/profile.plist"
-	/usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$out/profile.plist" > "$entitlements"
-	rm -f "$out/profile.plist"
+	plist=$(mktemp)
+	security cms -D -i "$profile" > "$plist"
+	/usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$plist" > "$entitlements"
+	rm -f "$plist"
 }
 
 ensure_bool_entitlement() {

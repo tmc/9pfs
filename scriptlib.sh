@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# Message prefixes follow one rule across these scripts: "9pfs:" introduces the
+# single line that states a gate's verdict ("9pfs: local verification ok"),
+# while the name of the script or helper doing the work introduces everything
+# else — progress and errors ("release: packaging ...", "verify-signed-build:
+# missing app: ..."). Grepping a CI log for "^9pfs:" therefore yields the
+# results and nothing else.
+
 # scriptlib_dir is the directory holding this library, for helpers that need a
 # repository-relative path (for example the p9 patch).
 scriptlib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -209,9 +216,9 @@ require_no_active_9pfs_mounts() {
 	fi
 	mounts=$(ninepfs_active_mounts)
 	if [[ -n "$mounts" ]]; then
-		echo "9pfs: active 9pfs mount(s) present; refusing to continue" >&2
+		echo "active-mounts: 9pfs mount(s) present; refusing to continue" >&2
 		printf '%s\n' "$mounts" >&2
-		echo "9pfs: unmount them first, or set NINEPFS_ALLOW_ACTIVE_MOUNTS=yes for a deliberate probe window" >&2
+		echo "active-mounts: unmount them first, or set NINEPFS_ALLOW_ACTIVE_MOUNTS=yes for a deliberate probe window" >&2
 		return 1
 	fi
 }
@@ -361,6 +368,6 @@ preflight_installed() {
 		fail=1
 	fi
 
-	[[ "$fail" -eq 0 ]] || { echo "9pfs: installed preflight failed" >&2; return 1; }
+	[[ "$fail" -eq 0 ]] || { echo "preflight-installed: failed" >&2; return 1; }
 	echo "9pfs: installed preflight ok"
 }
