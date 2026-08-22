@@ -51,10 +51,14 @@ else
 	# os.Getgid() for every file looked correct for as long as every file
 	# tested happened to be in the primary group.
 	owner_gid=$(id -G | tr ' ' '\n' | grep -vx "$(id -g)" | head -1)
-	if [[ -n "$owner_gid" ]]; then
-		printf 'owned\n' >"$root/owned.txt"
-		chgrp "$owner_gid" "$root/owned.txt" 2>/dev/null || owner_gid=
-	fi
+	[[ -n "$owner_gid" ]] || die "no secondary group to test ownership with"
+	printf 'owned\n' >"$root/owned.txt"
+	chgrp "$owner_gid" "$root/owned.txt" || die "chgrp $owner_gid failed on the export"
+	# Confirm the export really holds the group before the mount is asked
+	# about it. A silent skip here would leave the ownership assertions
+	# below reporting nothing while the script still exited 0.
+	test "$(stat -f '%g' "$root/owned.txt")" = "$owner_gid" ||
+		die "export file did not take group $owner_gid"
 
 	p9src=$tmp/p9-src
 	prepare_p9_module "$p9src"
@@ -147,7 +151,8 @@ fi
 # Owner reporting, and chown in both directions. This needs a file whose group
 # is not the extension's own primary group; without one, reporting the local
 # credentials for every file is indistinguishable from reporting the server's.
-if [[ -n "${owner_gid:-}" && -e "$mnt/owned.txt" ]]; then
+if [[ -n "${owner_gid:-}" ]]; then
+	test -e "$mnt/owned.txt" || die "owned.txt is missing from the mount"
 	got_gid=$(stat -f '%g' "$mnt/owned.txt")
 	if $linux; then
 		[[ "$got_gid" == "$owner_gid" ]] ||
