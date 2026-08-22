@@ -13,7 +13,7 @@ import "testing"
 // neither reached the file system. Nothing surfaced an error, which is why this
 // is worth a test rather than a comment.
 func TestNewItemIsStable(t *testing.T) {
-	s, err := newTestServer()
+	s, err := newTestServer("NinePFSIdentity")
 	if err != nil {
 		t.Skipf("no Objective-C runtime for this test: %v", err)
 	}
@@ -42,13 +42,18 @@ func TestNewItemIsStable(t *testing.T) {
 }
 
 // newTestServer returns a Server with a registered class set and no file
-// system implementation behind it; the identity test only exercises newItem.
-func newTestServer() (*Server, error) {
+// system implementation behind it.
+//
+// Each caller passes its own prefix: RegisterClasses reuses an item or volume
+// class that already exists but always registers the file system class afresh,
+// so two tests sharing a prefix would collide on the second one and report the
+// collision as a missing Objective-C runtime.
+func newTestServer(prefix string) (*Server, error) {
 	s := &Server{}
 	classes, err := RegisterClasses(ClassConfig{
-		FileSystemName: "NinePFSIdentityTestFileSystem",
-		VolumeName:     "NinePFSIdentityTestVolume",
-		ItemName:       "NinePFSIdentityTestItem",
+		FileSystemName: prefix + "TestFileSystem",
+		VolumeName:     prefix + "TestVolume",
+		ItemName:       prefix + "TestItem",
 	})
 	if err != nil {
 		return nil, err
