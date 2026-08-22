@@ -15,6 +15,9 @@ set -euo pipefail
 #      image, and write a SHA-256 checksum beside each.
 #   4. optional: gh release create <tag> with the assets   — CONFIRM_9PFS_PUBLISH=yes
 #
+# The release notes are fixed install instructions; set NINEPFS_RELEASE_NOTES to
+# append what changed in this release.
+#
 # To publish assets this script already produced, without rebuilding or paying
 # for another trip to Apple:
 #
@@ -35,6 +38,10 @@ out=${2:-/tmp/9pfs-release-$tag}
 publish_only=${NINEPFS_PUBLISH_ONLY:-}
 
 die() { echo "release: $*" >&2; exit 1; }
+
+# install_notes are the same for every release: how to install the artifacts.
+# NINEPFS_RELEASE_NOTES, if set, is appended below them to say what changed.
+install_notes="Notarized Developer ID build of the 9pfs FSKit file system. Open the disk image and drag NinePFSHost.app to Applications, open it once to register the extension, enable 9pfs in System Settings > General > Login Items & Extensions > File System Extensions, then mount with /sbin/mount -F -t 9pfs. See README for details."
 
 build_dir=$out/build
 app=$build_dir/NinePFSHost.app
@@ -131,6 +138,8 @@ echo "release: creating GitHub release $tag"
 gh release create "$tag" "$dmg" "$dmg.sha256" "$zip" "$zip.sha256" \
 	--repo "$(git -C "$dir" remote get-url origin)" \
 	--title "9pfs $tag" \
-	--notes "Notarized Developer ID build of the 9pfs FSKit file system. Open the disk image and drag NinePFSHost.app to Applications, open it once to register the extension, enable 9pfs in System Settings > General > Login Items & Extensions > File System Extensions, then mount with /sbin/mount -F -t 9pfs. See README for details."
+	--notes "$install_notes${NINEPFS_RELEASE_NOTES:+
+
+$NINEPFS_RELEASE_NOTES}"
 
 echo "release: published $tag"
