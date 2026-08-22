@@ -52,6 +52,25 @@ func TestLive(t *testing.T) {
 		t.Errorf("QID path for /README changed between stats: %d then %d", readme.QIDPath, again.QIDPath)
 	}
 
+	// The server's own view of ownership and timestamps has to reach us:
+	// reporting the local user on every file, or the modification time as
+	// all four timestamps, is what this file system did before it kept
+	// these fields. 9P2000.L reports them; classic 9P2000 names owners
+	// with strings and has no change or birth time.
+	switch {
+	case linux && !readme.HasOwner:
+		t.Error("9p2000.l reported no owner for /README")
+	case linux && readme.Links == 0:
+		t.Error("9p2000.l reported no link count for /README")
+	case linux && readme.Changed == 0:
+		t.Error("9p2000.l reported no change time for /README")
+	case linux:
+		t.Logf("/README owner %d:%d, %d link(s), atime %d ctime %d btime %d",
+			readme.UID, readme.GID, readme.Links, readme.Accessed, readme.Changed, readme.Born)
+	case readme.HasOwner:
+		t.Error("9p2000 claimed a numeric owner; the dialect names owners with strings")
+	}
+
 	// 9P2000.L carries statfs, so those mounts report the server's real
 	// numbers instead of a placeholder. 9P2000 has no statfs.
 	switch stats, ok := backendVolumeStats(b); {

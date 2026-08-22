@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"9fans.net/go/plan9"
@@ -265,5 +266,69 @@ func TestFSConfigForURL(t *testing.T) {
 				t.Fatalf("fsConfigForURL(%q) = %+v, want %+v", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestAttributesUseWhatTheServerReports checks that a backend's owner, link
+// count and timestamps reach FSKit instead of being replaced by the local
+// user and the modification time. Every mount before this reported the
+// extension's own uid and gid on every file, and a link count of 1 even on
+// mounts advertising hard links.
+func TestAttributesUseWhatTheServerReports(t *testing.T) {
+	info := nodeInfo{
+		Name:     "a",
+		Mode:     0644,
+		Length:   7,
+		Modified: 2000,
+		Accessed: 1000,
+		Changed:  3000,
+		Born:     500,
+		Links:    3,
+		UID:      501,
+		GID:      20,
+		HasOwner: true,
+	}
+	attrs := attributesForNode(info, 42, fskit.FSItemIDRootDirectory)
+	if got := attrs.Uid(); got != 501 {
+		t.Errorf("uid = %d, want the server's 501", got)
+	}
+	if got := attrs.Gid(); got != 20 {
+		t.Errorf("gid = %d, want the server's 20", got)
+	}
+	if got := attrs.LinkCount(); got != 3 {
+		t.Errorf("link count = %d, want the server's 3", got)
+	}
+	if got := attrs.AccessTime().Sec; got != 1000 {
+		t.Errorf("atime = %d, want 1000", got)
+	}
+	if got := attrs.ChangeTime().Sec; got != 3000 {
+		t.Errorf("ctime = %d, want 3000", got)
+	}
+	if got := attrs.BirthTime().Sec; got != 500 {
+		t.Errorf("btime = %d, want 500", got)
+	}
+}
+
+// TestAttributesFallBackForClassic9P checks the substitutions made for a
+// dialect that does not report an attribute: classic 9P2000 has no change or
+// birth time and no numeric owner, and reporting zero there would date every
+// file to 1970 and hand FSKit root as the owner.
+func TestAttributesFallBackForClassic9P(t *testing.T) {
+	info := nodeInfo{Name: "a", Mode: 0644, Modified: 2000, Accessed: 1000}
+	attrs := attributesForNode(info, 42, fskit.FSItemIDRootDirectory)
+	if got := attrs.ChangeTime().Sec; got != 2000 {
+		t.Errorf("ctime = %d, want the modification time 2000", got)
+	}
+	if got := attrs.BirthTime().Sec; got != 2000 {
+		t.Errorf("btime = %d, want the modification time 2000", got)
+	}
+	if got := attrs.AccessTime().Sec; got != 1000 {
+		t.Errorf("atime = %d, want the reported 1000", got)
+	}
+	if got := attrs.LinkCount(); got != 1 {
+		t.Errorf("link count = %d, want 1", got)
+	}
+	if got, want := attrs.Uid(), uint32(os.Getuid()); got != want {
+		t.Errorf("uid = %d, want the local %d", got, want)
 	}
 }

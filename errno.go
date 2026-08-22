@@ -91,8 +91,9 @@ type errnoBackend struct{ backend }
 // links, including 9P2000.L mounts where both work. Forward them by hand. A
 // new capability interface needs a line here too, which is the cost of
 // wrapping an interface rather than a type.
-func (b errnoBackend) supportsSymlinks() bool  { return supportsSymlinks(b.backend) }
-func (b errnoBackend) supportsHardLinks() bool { return supportsHardLinks(b.backend) }
+func (b errnoBackend) supportsSymlinks() bool     { return supportsSymlinks(b.backend) }
+func (b errnoBackend) supportsHardLinks() bool    { return supportsHardLinks(b.backend) }
+func (b errnoBackend) supportsOwnerChanges() bool { return supportsOwnerChanges(b.backend) }
 
 func (b errnoBackend) volumeStats() (volumeStats, error) {
 	stats, ok := backendVolumeStats(b.backend)

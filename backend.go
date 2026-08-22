@@ -43,6 +43,9 @@ type backend interface {
 	Preallocate(name string, offset int64, length uint64) (uint64, error)
 }
 
+// A nodeInfo is a backend's view of one file's attributes. The dialects
+// report different subsets, so a field a dialect does not carry is left
+// zero and the caller falls back; see attributesForNode.
 type nodeInfo struct {
 	Name     string
 	Mode     uint32
@@ -54,6 +57,25 @@ type nodeInfo struct {
 	// makes it usable as a persistent object ID; see persistentIDs in
 	// fskit_bridge.go. Zero means the backend did not report one.
 	QIDPath uint64
+
+	// Accessed, Changed and Born are the remaining three timestamps, in
+	// seconds. Classic 9P2000 carries only Accessed. Zero means the backend
+	// did not report one, and the caller substitutes Modified rather than
+	// showing a file born in 1970.
+	Accessed uint64
+	Changed  uint64
+	Born     uint64
+
+	// Links is the hard link count. Zero means the backend did not report
+	// one; a file has at least one link, so the caller reports 1.
+	Links uint32
+
+	// UID and GID are the owning user and group. Only 9P2000.L reports them
+	// numerically: classic 9P2000 names its owners with strings, which do
+	// not map to local IDs. HasOwner distinguishes a server reporting
+	// root-owned files from a dialect that cannot say.
+	UID, GID uint32
+	HasOwner bool
 }
 
 type setAttr struct {
@@ -61,6 +83,12 @@ type setAttr struct {
 	Size     *uint64
 	Accessed *uint64
 	Modified *uint64
+
+	// UID and GID change the owner. Only 9P2000.L can express this; a
+	// backend that cannot reports so through ownerChangeCapable and never
+	// sees these set.
+	UID *uint32
+	GID *uint32
 }
 
 const modeDirectory = uint32(plan9.DMDIR)
@@ -274,6 +302,10 @@ func (b *ninePBackend) Preallocate(name string, offset int64, length uint64) (ui
 func (b *ninePBackend) supportsSymlinks() bool  { return false }
 func (b *ninePBackend) supportsHardLinks() bool { return false }
 
+// Classic 9P2000 names owners with strings, which do not map to the numeric
+// IDs FSKit asks for, so a chown cannot be expressed.
+func (b *ninePBackend) supportsOwnerChanges() bool { return false }
+
 type p9LBackend struct {
 	client *p9.Client
 	root   p9.File
@@ -312,13 +344,27 @@ func (b *p9LBackend) Stat(name string) (nodeInfo, error) {
 	if err != nil {
 		return nodeInfo{}, fmt.Errorf("stat 9p2000.l %s: %w", name, err)
 	}
+	return nodeInfoFromAttr(path.Base(clean9PPath(name)), qid, attr), nil
+}
+
+// nodeInfoFromAttr converts a 9P2000.L getattr. The dialect reports every
+// attribute FSKit asks for, so unlike classic 9P2000 nothing here is a
+// fallback.
+func nodeInfoFromAttr(name string, qid p9.QID, attr p9.Attr) nodeInfo {
 	return nodeInfo{
-		Name:     path.Base(clean9PPath(name)),
+		Name:     name,
 		Mode:     uint32(attr.Mode),
 		Length:   attr.Size,
 		Modified: attr.MTimeSeconds,
+		Accessed: attr.ATimeSeconds,
+		Changed:  attr.CTimeSeconds,
+		Born:     attr.BTimeSeconds,
+		Links:    uint32(attr.NLink),
+		UID:      uint32(attr.UID),
+		GID:      uint32(attr.GID),
+		HasOwner: true,
 		QIDPath:  qid.Path,
-	}, nil
+	}
 }
 
 func (b *p9LBackend) ReadDir(name string) ([]nodeInfo, error) {
@@ -568,6 +614,14 @@ func (b *p9LBackend) SetAttr(name string, attr setAttr) (nodeInfo, error) {
 		mask.MTime = true
 		set.MTimeSeconds = *attr.Modified
 	}
+	if attr.UID != nil {
+		mask.UID = true
+		set.UID = p9.UID(*attr.UID)
+	}
+	if attr.GID != nil {
+		mask.GID = true
+		set.GID = p9.GID(*attr.GID)
+	}
 	if mask.Empty() {
 		return b.Stat(name)
 	}
@@ -635,6 +689,9 @@ func (b *p9LBackend) Preallocate(name string, offset int64, length uint64) (uint
 func (b *p9LBackend) supportsSymlinks() bool  { return true }
 func (b *p9LBackend) supportsHardLinks() bool { return true }
 
+// 9P2000.L carries numeric owners in both getattr and setattr.
+func (b *p9LBackend) supportsOwnerChanges() bool { return true }
+
 // preallocateGrow emulates preallocation on backends whose only size control
 // is truncation. It grows the file to offset+length when needed and never
 // shrinks an already larger file.
@@ -674,12 +731,16 @@ func (b *p9LBackend) walk(name string) (p9.File, error) {
 	return file, nil
 }
 
+// nodeInfoFromPlan9Dir converts a classic 9P2000 stat. The dialect has no
+// change or birth time, and names its owners with strings (d.Uid, d.Gid)
+// that do not map to local IDs, so those fields stay zero.
 func nodeInfoFromPlan9Dir(d *plan9.Dir) nodeInfo {
 	return nodeInfo{
 		Name:     d.Name,
 		Mode:     uint32(d.Mode),
 		Length:   d.Length,
 		Modified: uint64(d.Mtime),
+		Accessed: uint64(d.Atime),
 		QIDPath:  d.Qid.Path,
 	}
 }

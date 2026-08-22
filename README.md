@@ -90,15 +90,26 @@ otherwise. TextEdit and other versioning applications warn about it on any
 | create file/directory, remove | yes | yes |
 | rename | same-directory | yes |
 | chmod, truncate | yes | yes |
+| chown | no | yes |
 | mtime | server-dependent | yes |
+| atime, ctime, birth time | atime only | yes |
+| owner and link count | local user, 1 | from the server |
 | symlink, readlink, hard link | no | yes |
 | extended attributes | no | yes |
 | open/close, access checks | yes | yes |
 | volume size and free space | placeholder | yes |
 | persistent object IDs | opt-in | opt-in |
 
-Not implemented: device-node creation, advisory locking, and authentication
-beyond the local-user or anonymous attach defaults.
+Attributes a dialect cannot report are substituted rather than left at zero: a
+missing timestamp becomes the modification time, and a classic 9P2000 mount
+reports the local user as the owner, because that dialect names its owners with
+strings that do not map to numeric IDs. What a mount declines to apply is
+reported to macOS as unconsumed, so a `chown` on a 9P2000 mount fails rather
+than silently doing nothing.
+
+Not implemented: device-node creation, file flags (`chflags`, which 9P has no
+equivalent for), advisory locking, and authentication beyond the local-user or
+anonymous attach defaults.
 
 Out of reach rather than unimplemented: document version storage, which macOS
 offers only on local volumes, and extended-attribute support is not advertised

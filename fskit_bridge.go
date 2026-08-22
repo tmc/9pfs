@@ -492,7 +492,13 @@ func (v *ninepVolume) movePaths(oldPath, newPath string) {
 	v.movePathsLocked(oldPath, newPath)
 }
 
-func (v *ninepVolume) SetAttributes(item fskitbridge.Item, set fskitbridge.SetAttributes) error {
+// SetAttributes applies what the dialect can express and clears the rest, so
+// that FSKit reports the untouched attributes as unconsumed rather than
+// letting the caller believe they were applied. Ownership goes to the server
+// only on 9P2000.L; classic 9P2000 names its owners with strings, so a chown
+// there is declined rather than guessed at. File flags have no 9P equivalent
+// in either dialect.
+func (v *ninepVolume) SetAttributes(item fskitbridge.Item, set *fskitbridge.SetAttributes) error {
 	it, err := v.item(item)
 	if err != nil {
 		return err
@@ -512,6 +518,12 @@ func (v *ninepVolume) SetAttributes(item fskitbridge.Item, set fskitbridge.SetAt
 		seconds := uint64(set.ModifyTime.Sec)
 		attr.Modified = &seconds
 	}
+	if supportsOwnerChanges(v.backend) {
+		attr.UID, attr.GID = set.UID, set.GID
+	} else {
+		set.UID, set.GID = nil, nil
+	}
+	set.Flags = nil
 	info, err := v.backend.SetAttr(v.pathOf(it), attr)
 	if err != nil {
 		return err
@@ -603,6 +615,12 @@ func (v *ninepVolume) Preallocate(file fskitbridge.Item, offset int64, length ui
 func (v *ninepVolume) Open(item fskitbridge.Item, modes fskit.FSVolumeOpenModes) error  { return nil }
 func (v *ninepVolume) Close(item fskitbridge.Item, modes fskit.FSVolumeOpenModes) error { return nil }
 
+// CheckAccess allows everything and lets the server decide. Implementing this
+// at all is a choice: without it the kernel would check the mode bits we
+// report, which are the server's, against the local user, who is generally not
+// the user the server authorized. A 9P server authorizes by the identity it
+// was attached with and rejects what that identity may not do, so a local
+// check on top of it can only deny what the server would have allowed.
 func (v *ninepVolume) CheckAccess(item fskitbridge.Item, access fskit.FSAccessMask) (bool, error) {
 	return true, nil
 }
@@ -674,29 +692,53 @@ func (v *ninepVolume) PathConf() fskitbridge.PathConf {
 	return conf
 }
 
+// attributesForNode converts a backend's view of a file into the attributes
+// FSKit asks for. What the dialect does not report is substituted here rather
+// than in the backends, so the substitution is visible in one place: an
+// unreported timestamp becomes the modification time, an unreported link
+// count becomes 1, and an unreported owner becomes the user running the
+// extension, which is the best guess available when the protocol names its
+// owners with strings.
 func attributesForNode(info nodeInfo, id, parentID fskit.FSItemID) fskit.FSItemAttributes {
 	typ := itemTypeFor(info)
-	mode := info.Mode & 0777
+	mode := info.Mode & (0777 | syscall.S_ISUID | syscall.S_ISGID | syscall.S_ISVTX)
 	if typ == fskit.FSItemTypeDirectory {
 		mode |= 0111
 	}
-	ts := syscall.Timespec{Sec: int64(info.Modified)}
+	modified := syscall.Timespec{Sec: int64(info.Modified)}
+	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
+	if info.HasOwner {
+		uid, gid = info.UID, info.GID
+	}
+	links := info.Links
+	if links == 0 {
+		links = 1
+	}
 	return fskitbridge.NewItemAttributes().
 		Type(typ).
 		Mode(mode).
-		LinkCount(1).
-		UID(uint32(os.Getuid())).
-		GID(uint32(os.Getgid())).
+		LinkCount(links).
+		UID(uid).
+		GID(gid).
 		Flags(0).
 		Size(info.Length).
 		AllocSize(info.Length).
-		AccessTime(ts).
-		ModifyTime(ts).
-		ChangeTime(ts).
-		BirthTime(ts).
+		AccessTime(timestampOr(info.Accessed, modified)).
+		ModifyTime(modified).
+		ChangeTime(timestampOr(info.Changed, modified)).
+		BirthTime(timestampOr(info.Born, modified)).
 		ID(id).
 		ParentID(parentID).
 		Build()
+}
+
+// timestampOr returns sec as a timespec, or fallback if the backend did not
+// report it.
+func timestampOr(sec uint64, fallback syscall.Timespec) syscall.Timespec {
+	if sec == 0 {
+		return fallback
+	}
+	return syscall.Timespec{Sec: int64(sec)}
 }
 
 func itemTypeFor(info nodeInfo) fskit.FSItemType {
@@ -736,6 +778,7 @@ func p9FileModeIsSymlink(mode uint32) bool {
 type symlinkCapable interface{ supportsSymlinks() bool }
 type hardLinkCapable interface{ supportsHardLinks() bool }
 type statsCapable interface{ volumeStats() (volumeStats, error) }
+type ownerChangeCapable interface{ supportsOwnerChanges() bool }
 
 func supportsSymlinks(b backend) bool {
 	c, ok := b.(symlinkCapable)
@@ -745,6 +788,11 @@ func supportsSymlinks(b backend) bool {
 func supportsHardLinks(b backend) bool {
 	c, ok := b.(hardLinkCapable)
 	return ok && c.supportsHardLinks()
+}
+
+func supportsOwnerChanges(b backend) bool {
+	c, ok := b.(ownerChangeCapable)
+	return ok && c.supportsOwnerChanges()
 }
 
 // backendVolumeStats returns the backend's volume statistics, or false when
