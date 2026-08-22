@@ -93,7 +93,8 @@ otherwise. TextEdit and other versioning applications warn about it on any
 | mtime | server-dependent | yes |
 | symlink, readlink, hard link | no | yes |
 | extended attributes | no | yes |
-| open/close, access checks, statistics | yes | yes |
+| open/close, access checks | yes | yes |
+| volume size and free space | placeholder | yes |
 | persistent object IDs | opt-in | opt-in |
 
 Not implemented: device-node creation, advisory locking, and authentication

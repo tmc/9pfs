@@ -1,6 +1,6 @@
 --- orig/fsimpl/localfs/localfs.go
 +++ patched/fsimpl/localfs/localfs.go
-@@ -19,6 +19,7 @@
+@@ -19,11 +19,13 @@
  	"os"
  	"path"
  	"path/filepath"
@@ -8,7 +8,13 @@
  
  	"github.com/hugelgupf/p9/fsimpl/templatefs"
  	"github.com/hugelgupf/p9/internal"
-@@ -268,16 +269,34 @@
+ 	"github.com/hugelgupf/p9/linux"
+ 	"github.com/hugelgupf/p9/p9"
++	"golang.org/x/sys/unix"
+ )
+ 
+ type attacher struct {
+@@ -268,15 +270,33 @@
  // SetAttr implements p9.File.SetAttr.
  func (l *Local) SetAttr(valid p9.SetAttrMask, attr p9.SetAttr) error {
  	// When truncate(2) is called on Linux, Linux will try to set time & size. Fake it. Sorry.
@@ -30,7 +36,7 @@
 +		if err := os.Truncate(l.path, int64(attr.Size)); err != nil {
 +			return err
 +		}
- 	}
++	}
 +	if valid.ATime || valid.MTime {
 +		atime := time.Now()
 +		mtime := atime
@@ -43,12 +49,37 @@
 +		if err := os.Chtimes(l.path, atime, mtime); err != nil {
 +			return err
 +		}
-+	}
+ 	}
  	return nil
  }
- 
---- orig/p9/client_file.go	2026-08-21 16:19:01
-+++ patched/p9/client_file.go	2026-08-21 16:19:15
+@@ -289,3 +309,25 @@
+ 	// Remove the file or directory
+ 	return os.Remove(fullPath)
+ }
++
++// StatFS implements p9.File.StatFS.
++//
++// Upstream leaves this unimplemented, so a client sees a volume of unknown
++// size. Report the numbers for the file system actually holding the exported
++// directory.
++func (l *Local) StatFS() (p9.FSStat, error) {
++	var s unix.Statfs_t
++	if err := unix.Statfs(l.path, &s); err != nil {
++		return p9.FSStat{}, err
++	}
++	return p9.FSStat{
++		Type:            s.Type,
++		BlockSize:       s.Bsize,
++		Blocks:          s.Blocks,
++		BlocksFree:      s.Bfree,
++		BlocksAvailable: s.Bavail,
++		Files:           s.Files,
++		FilesFree:       s.Ffree,
++		NameLength:      255,
++	}, nil
++}
+--- orig/p9/client_file.go
++++ patched/p9/client_file.go
 @@ -71,13 +71,48 @@
  }
  

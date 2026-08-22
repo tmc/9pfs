@@ -52,6 +52,19 @@ func TestLive(t *testing.T) {
 		t.Errorf("QID path for /README changed between stats: %d then %d", readme.QIDPath, again.QIDPath)
 	}
 
+	// 9P2000.L carries statfs, so those mounts report the server's real
+	// numbers instead of a placeholder. 9P2000 has no statfs.
+	switch stats, ok := backendVolumeStats(b); {
+	case ok && !linux:
+		t.Errorf("9p2000 reported volume statistics %+v; the dialect has no statfs", stats)
+	case !ok && linux:
+		t.Error("9p2000.l did not report volume statistics")
+	case ok && stats.TotalBlocks == 0:
+		t.Errorf("volume statistics report no blocks at all: %+v", stats)
+	case ok:
+		t.Logf("volume statistics: %+v", stats)
+	}
+
 	// 9P2000 (export9p) exercises files at the root: no subdirectory or
 	// rename-into-dir. The .L path below adds those plus symlink/hardlink/xattr.
 	file := "/codex.txt"

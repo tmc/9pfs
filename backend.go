@@ -684,6 +684,33 @@ func nodeInfoFromPlan9Dir(d *plan9.Dir) nodeInfo {
 	}
 }
 
+// volumeStats is a backend's view of the volume's space and inode usage, as
+// reported by a statfs the protocol provides.
+type volumeStats struct {
+	BlockSize   uint32
+	TotalBlocks uint64
+	FreeBlocks  uint64
+	AvailBlocks uint64
+	TotalFiles  uint64
+	FreeFiles   uint64
+}
+
+// volumeStats implements statsCapable for 9P2000.L, which carries statfs.
+func (b *p9LBackend) volumeStats() (volumeStats, error) {
+	stat, err := b.root.StatFS()
+	if err != nil {
+		return volumeStats{}, fmt.Errorf("statfs 9p2000.l: %w", err)
+	}
+	return volumeStats{
+		BlockSize:   stat.BlockSize,
+		TotalBlocks: stat.Blocks,
+		FreeBlocks:  stat.BlocksFree,
+		AvailBlocks: stat.BlocksAvailable,
+		TotalFiles:  stat.Files,
+		FreeFiles:   stat.FilesFree,
+	}, nil
+}
+
 func modeFromP9QID(qtype p9.QIDType) uint32 {
 	if qtype&p9.TypeDir != 0 {
 		return uint32(plan9.DMDIR | 0555)

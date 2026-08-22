@@ -94,6 +94,14 @@ type errnoBackend struct{ backend }
 func (b errnoBackend) supportsSymlinks() bool  { return supportsSymlinks(b.backend) }
 func (b errnoBackend) supportsHardLinks() bool { return supportsHardLinks(b.backend) }
 
+func (b errnoBackend) volumeStats() (volumeStats, error) {
+	stats, ok := backendVolumeStats(b.backend)
+	if !ok {
+		return volumeStats{}, errUnsupported
+	}
+	return stats, nil
+}
+
 func (b errnoBackend) Stat(name string) (nodeInfo, error) {
 	info, err := b.backend.Stat(name)
 	return info, backendError(err)

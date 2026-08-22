@@ -107,13 +107,14 @@ require_cert_in_profile() {
 #     build without it mounts fine and fails every xattr write. Upstream
 #     already implements the read half (GetXattr, ListXattrs).
 #
-#   fsimpl/localfs/localfs.go — chmod and utimes in the p9ufs test server,
-#     which silently drops them. Test-only; nothing outside live_test.go
-#     imports fsimpl.
+#   fsimpl/localfs/localfs.go — chmod, utimes and statfs, which upstream
+#     either drops silently or leaves unimplemented. localfs serves both the
+#     live test and the bundled 9pdemo, so this half ships too: without the
+#     statfs hunk the demo reports a volume of unknown size.
 #
-# Both are local to the build and change no module dependency, so the client
-# half ships in a binary whose go.mod advertises stock p9. Retiring it means
-# landing it upstream. scriptlib_dir is the directory holding this library.
+# Both are local to the build and change no module dependency, so they ship in
+# binaries whose go.mod advertises stock p9. Retiring either means landing it
+# upstream. scriptlib_dir is the directory holding this library.
 prepare_p9_module() {
 	local dest=${1:?"usage: prepare_p9_module dest"}
 	local src

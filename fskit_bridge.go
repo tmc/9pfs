@@ -631,16 +631,38 @@ func (v *ninepVolume) SupportedCapabilities() fskit.FSVolumeSupportedCapabilitie
 	return capabilities
 }
 
+// Statistics reports the volume's space and inode usage. 9P2000.L carries a
+// statfs, so those mounts report the server's real numbers and a file manager
+// shows the space that is actually there. Classic 9P2000 has no statfs; those
+// mounts report a full one-block volume, which is a placeholder rather than a
+// measurement, but keeps callers that divide by the total from dividing by
+// zero.
 func (v *ninepVolume) Statistics() fskit.FSStatFSResult {
 	result := fskit.NewStatFSResultWithFileSystemTypeName("9pfs")
-	result.SetBlockSize(4096)
-	result.SetIoSize(4096)
-	result.SetTotalBlocks(1)
-	result.SetAvailableBlocks(0)
-	result.SetFreeBlocks(0)
-	result.SetUsedBlocks(1)
-	result.SetTotalFiles(1)
-	result.SetFreeFiles(0)
+	stats, ok := backendVolumeStats(v.backend)
+	if !ok {
+		result.SetBlockSize(4096)
+		result.SetIoSize(4096)
+		result.SetTotalBlocks(1)
+		result.SetAvailableBlocks(0)
+		result.SetFreeBlocks(0)
+		result.SetUsedBlocks(1)
+		result.SetTotalFiles(1)
+		result.SetFreeFiles(0)
+		return result
+	}
+	blockSize := stats.BlockSize
+	if blockSize == 0 {
+		blockSize = 4096
+	}
+	result.SetBlockSize(int(blockSize))
+	result.SetIoSize(int(blockSize))
+	result.SetTotalBlocks(stats.TotalBlocks)
+	result.SetFreeBlocks(stats.FreeBlocks)
+	result.SetAvailableBlocks(stats.AvailBlocks)
+	result.SetUsedBlocks(stats.TotalBlocks - stats.FreeBlocks)
+	result.SetTotalFiles(stats.TotalFiles)
+	result.SetFreeFiles(stats.FreeFiles)
 	return result
 }
 
@@ -706,13 +728,14 @@ func p9FileModeIsSymlink(mode uint32) bool {
 	return mode&0170000 == 0120000
 }
 
-// Capabilities a backend opts into by implementing these interfaces. A
-// backend reports a capability by returning true; the type switch this
-// replaced broke when the backend was wrapped (errnoBackend), so capability
-// is a behavior the backend declares, forwarded transparently through the
-// embedding wrapper.
+// Capabilities a backend opts into by implementing these interfaces, rather
+// than by the caller switching on the concrete type. Each is reached through
+// a type assertion, so errnoBackend has to forward every one of them by hand:
+// it embeds the backend interface, and embedding an interface promotes only
+// that interface's methods.
 type symlinkCapable interface{ supportsSymlinks() bool }
 type hardLinkCapable interface{ supportsHardLinks() bool }
+type statsCapable interface{ volumeStats() (volumeStats, error) }
 
 func supportsSymlinks(b backend) bool {
 	c, ok := b.(symlinkCapable)
@@ -722,6 +745,21 @@ func supportsSymlinks(b backend) bool {
 func supportsHardLinks(b backend) bool {
 	c, ok := b.(hardLinkCapable)
 	return ok && c.supportsHardLinks()
+}
+
+// backendVolumeStats returns the backend's volume statistics, or false when
+// the backend cannot report them. Classic 9P2000 has no statfs, so its
+// mounts fall back to the placeholder in [ninepVolume.Statistics].
+func backendVolumeStats(b backend) (volumeStats, bool) {
+	c, ok := b.(statsCapable)
+	if !ok {
+		return volumeStats{}, false
+	}
+	stats, err := c.volumeStats()
+	if err != nil {
+		return volumeStats{}, false
+	}
+	return stats, true
 }
 
 // logBridge logs a bridge diagnostic. os_log (nativeExtensionLog) is always
