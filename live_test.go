@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -204,6 +205,28 @@ func TestLive(t *testing.T) {
 		t.Fatalf("remove second hardlink: %v", err)
 	}
 
+	// Ownership has to be asserted here rather than through a mount. A mount
+	// made by an ordinary user carries noowners, under which the kernel
+	// reports the mounting user as the owner of everything and never passes
+	// the file system's answer through. This is the layer where the answer
+	// still exists.
+	export := os.Getenv("NINEPFS_LIVE_EXPORT")
+	if gid := secondaryGID(); export != "" && gid != 0 {
+		if err := os.Chown(filepath.Join(export, "dir", "renamed.txt"), -1, int(gid)); err != nil {
+			t.Fatalf("chown export file: %v", err)
+		}
+		attrs, err := v.Attributes(linked)
+		if err != nil {
+			t.Fatalf("attributes after chown: %v", err)
+		}
+		if attrs.Gid() != gid {
+			t.Errorf("volume reports gid %d, want the server's %d", attrs.Gid(), gid)
+		}
+		if attrs.Uid() != uint32(os.Getuid()) {
+			t.Errorf("volume reports uid %d, want the server's %d", attrs.Uid(), os.Getuid())
+		}
+	}
+
 	xattr := []byte("xattr through 9p")
 	if err := b.SetXattr("/dir/renamed.txt", "user.codex", xattr); err != nil {
 		t.Fatalf("setxattr: %v", err)
@@ -243,4 +266,22 @@ func contains(names []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// secondaryGID returns a group the current process belongs to that is not its
+// primary group, or 0 if there is none. Asserting ownership needs one: a file
+// in the primary group cannot distinguish the server's answer from the local
+// credentials, which is how a file system reporting its own uid and gid for
+// every file went unnoticed.
+func secondaryGID() uint32 {
+	groups, err := os.Getgroups()
+	if err != nil {
+		return 0
+	}
+	for _, g := range groups {
+		if g != os.Getgid() && g > 0 {
+			return uint32(g)
+		}
+	}
+	return 0
 }

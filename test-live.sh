@@ -46,7 +46,10 @@ for dialect in "${dialects[@]}"; do
 	start_9p_server "$dialect" "$root" "$tmp" "$p9src"
 
 	status=0
+	# The export path lets the test change a file behind the server's back,
+	# which is how it checks that attributes are read rather than cached.
 	NINEPFS_LIVE_ADDR=$server_addr NINEPFS_LIVE_DIALECT=$dialect \
+		NINEPFS_LIVE_EXPORT=$root \
 		GOWORK=off GOFLAGS="-modfile=$modfile" \
 		go test "$dir" -run TestLive -count=1 -v || status=$?
 

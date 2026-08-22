@@ -148,35 +148,24 @@ if [[ "$url" == *9p2000l* ]]; then
 	test ! -e "$mnt/codex-dir/hard" || die "remove reported success but hard is still there"
 fi
 
-# Owner reporting, and chown in both directions. This needs a file whose group
-# is not the extension's own primary group; without one, reporting the local
-# credentials for every file is indistinguishable from reporting the server's.
-if [[ -n "${owner_gid:-}" ]]; then
-	test -e "$mnt/owned.txt" || die "owned.txt is missing from the mount"
-	got_gid=$(stat -f '%g' "$mnt/owned.txt")
-	if $linux; then
-		[[ "$got_gid" == "$owner_gid" ]] ||
-			die "owned.txt reports gid $got_gid, want the server's $owner_gid"
-		echo "ok: owner reported from the server (gid $got_gid)"
-
-		# chown works on 9P2000.L: move the file back to the primary group.
-		chgrp "$(id -g)" "$mnt/owned.txt" || die "chgrp failed on 9p2000.l"
-		test "$(stat -f '%g' "$mnt/owned.txt")" = "$(id -g)" ||
-			die "chgrp reported success but the group did not change"
-		echo "ok: chgrp applied through the mount"
-	else
-		# Classic 9P2000 names owners with strings, so the mount reports
-		# local credentials and declines a chown. Declining has to be
-		# visible: an unconsumed attribute is how the caller learns the
-		# change did not happen, and a silent success is the bug.
-		[[ "$got_gid" == "$(id -g)" ]] ||
-			die "9p2000 reported gid $got_gid, want the local $(id -g)"
-		if chgrp "$owner_gid" "$mnt/owned.txt" 2>/dev/null; then
-			die "chgrp reported success on 9p2000, which cannot express one"
-		fi
-		echo "ok: chgrp declined on 9p2000 rather than silently doing nothing"
-	fi
-fi
+# Ownership cannot be tested here, and the assertion that tried to is worth
+# replacing with the reason rather than deleting.
+#
+# A mount made by an ordinary user always carries noowners
+# (MNT_IGNORE_OWNERSHIP); -o owners is accepted and ignored, because enabling
+# ownership needs root. Under it the kernel reports the mounting user as the
+# owner of every file whatever the file system says, and swallows chown before
+# it reaches the file system: chgrp through the mount exits 0, the group does
+# not change, and the server never sees a request.
+#
+# So both directions are invisible from here. What this file system reports is
+# asserted at the volume level in live_test.go, above the kernel. Assert the
+# substitution itself, so that a future change in either place is noticed.
+test -e "$mnt/owned.txt" || die "owned.txt is missing from the mount"
+got_gid=$(stat -f '%g' "$mnt/owned.txt")
+[[ "$got_gid" == "$(id -g)" ]] ||
+	die "owned.txt reports gid $got_gid; a noowners mount should report the mounting user's $(id -g)"
+echo "ok: noowners substitutes the mounting user (gid $got_gid, server has $owner_gid)"
 
 # Rename onto a name that already exists: the path an atomic save takes, and
 # the one a rename to a fresh name never reaches.

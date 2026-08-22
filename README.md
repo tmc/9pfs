@@ -90,10 +90,10 @@ otherwise. TextEdit and other versioning applications warn about it on any
 | create file/directory, remove | yes | yes |
 | rename | same-directory | yes |
 | chmod, truncate | yes | yes |
-| chown | no | yes |
 | mtime | server-dependent | yes |
 | atime, ctime, birth time | atime only | yes |
-| owner and link count | local user, 1 | from the server |
+| link count | 1 | from the server |
+| owner, chown | see below | see below |
 | symlink, readlink, hard link | no | yes |
 | extended attributes | no | yes |
 | open/close, access checks | yes | yes |
@@ -103,9 +103,17 @@ otherwise. TextEdit and other versioning applications warn about it on any
 Attributes a dialect cannot report are substituted rather than left at zero: a
 missing timestamp becomes the modification time, and a classic 9P2000 mount
 reports the local user as the owner, because that dialect names its owners with
-strings that do not map to numeric IDs. What a mount declines to apply is
-reported to macOS as unconsumed, so a `chown` on a 9P2000 mount fails rather
-than silently doing nothing.
+strings that do not map to numeric IDs.
+
+Ownership does not survive the mount, whatever the dialect reports. A mount made
+by an ordinary user always carries `noowners` (`MNT_IGNORE_OWNERSHIP`) — `-o
+owners` is accepted and ignored, since enabling ownership requires root. Under
+it the kernel reports the mounting user as the owner of every file and discards
+what the file system said, and it answers `chown` itself without passing it
+down: `chgrp` through the mount exits 0, changes nothing, and the server never
+hears about it. A 9P2000.L mount does read and apply ownership, and that is
+asserted in the live tests, above the kernel; it is simply not what `ls -l`
+shows you.
 
 Not implemented: device-node creation, file flags (`chflags`, which 9P has no
 equivalent for), advisory locking, and authentication beyond the local-user or
