@@ -8,29 +8,42 @@ and 9P2000.L (via `github.com/hugelgupf/p9`).
 ## Download and mount
 
 A notarized Developer ID build runs on any Mac without rebuilding or registering
-a device. Download `NinePFSHost-<version>.zip` from the releases, then:
+a device. Download `NinePFSHost-<version>.dmg` from the releases, open it, and
+drag `NinePFSHost.app` onto the `Applications` alias beside it. The disk image
+is signed and notarized, so opening it is the whole verification step.
 
-```sh
-shasum -a 256 -c NinePFSHost-<version>.zip.sha256
-ditto -x -k NinePFSHost-<version>.zip .
-spctl -a -vvv --type install NinePFSHost.app   # source=Notarized Developer ID
-
-sudo cp -R NinePFSHost.app /Applications/NinePFSHost.app
-open /Applications/NinePFSHost.app             # registers the extension
-```
-
-Enable the extension in System Settings > General > Login Items & Extensions >
-File System Extensions. The host app shows the module's live enabled/disabled
-status, so you can confirm the toggle took effect (see
+Open the app once from `/Applications`; that registers the extension. Then
+enable it in System Settings > General > Login Items & Extensions > File System
+Extensions. The app shows the module's live enabled/disabled status, so you can
+confirm the toggle took effect (see
 [Troubleshooting](#troubleshooting-the-install) if it cannot read that status),
-then mount:
+and mount:
 
 ```sh
 /sbin/mount -F -t 9pfs 'ninep://127.0.0.1:5640?dialect=9p2000l' /path/to/mountpoint
 ```
 
-The install (`sudo`) and the System Settings toggle are the one-time interactive
-steps macOS requires for any third-party file-system extension.
+The System Settings toggle is the one interactive step macOS requires for any
+third-party file-system extension. Nothing here needs `sudo`: `/Applications`
+is group-writable by admin users, and the extension runs inside the app bundle
+rather than being installed system-wide.
+
+Upgrading over an existing install can turn that toggle back off. If a mount
+fails after replacing the app, check the toggle before anything else.
+
+For scripted installs the release also carries a zip of the same stapled app:
+
+```sh
+shasum -a 256 -c NinePFSHost-<version>.zip.sha256
+ditto -x -k NinePFSHost-<version>.zip .
+spctl -a -vvv --type install NinePFSHost.app   # source=Notarized Developer ID
+cp -R NinePFSHost.app /Applications/NinePFSHost.app
+open /Applications/NinePFSHost.app
+```
+
+Extract that one with `ditto -x -k` rather than a double-click unarchiver: an
+unarchiver that drops symlinks or permissions breaks the signature. The disk
+image has no such failure mode, which is why it is the recommended download.
 
 ## Troubleshooting the install
 
@@ -224,9 +237,24 @@ CODESIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
 ```
 
 It builds in Developer ID mode (`NINEPFS_DEVID=yes`), notarizes
-(`CONFIRM_9PFS_NOTARIZE=yes`), packages the stapled app with a SHA-256 checksum,
-and optionally `gh release create`s it (`CONFIRM_9PFS_PUBLISH=yes`). Two
-constraints, both enforced by the scripts:
+(`CONFIRM_9PFS_NOTARIZE=yes`), packages the stapled app as a drag-install
+`.dmg` and a `.zip` with a SHA-256 checksum beside each, and optionally
+`gh release create`s them (`CONFIRM_9PFS_PUBLISH=yes`). The disk image is
+signed and notarized in its own right, so it costs a second trip to Apple.
+
+To publish assets an earlier run already produced — after a network failure, or
+because publishing was deliberately deferred — skip the build and the uploads:
+
+```sh
+CONFIRM_9PFS_PUBLISH=yes NINEPFS_PUBLISH_ONLY=yes ./release.sh v0.1.0
+```
+
+That re-checks the checksums and the disk image's staple before publishing,
+since nothing about the artifacts is rebuilt. Only the build directory is
+discarded between runs: a run that stops at the notarization gate leaves an
+existing release's artifacts intact.
+
+Two constraints, both enforced by the scripts:
 
   - **Cert ↔ profile match.** The embedded `MAC_APP_DIRECT` profile must embed
     the same certificate `CODESIGN_IDENTITY` signs with, or AMFI rejects the

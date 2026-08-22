@@ -204,6 +204,113 @@ start_9p_server() {
 	return 1
 }
 
+# resolve_notary_args fills the notary_args array with notarytool credentials
+# and prints a one-line description of what it found. Precedence:
+# NINEPFS_NOTARY_PROFILE (a `notarytool store-credentials` keychain profile),
+# then an App Store Connect API key from NINEPFS_ASC_KEY_ID /
+# NINEPFS_ASC_ISSUER_ID / NINEPFS_ASC_KEY_PATH, else ~/.appstoreconnect.
+resolve_notary_args() {
+	local asc_config key_id issuer_id key_path
+
+	if [[ -n "${NINEPFS_NOTARY_PROFILE:-}" ]]; then
+		notary_args=(--keychain-profile "$NINEPFS_NOTARY_PROFILE")
+		echo "keychain profile $NINEPFS_NOTARY_PROFILE"
+		return 0
+	fi
+
+	asc_config=${NINEPFS_ASC_CONFIG:-$HOME/.appstoreconnect/config.yaml}
+	key_id=${NINEPFS_ASC_KEY_ID:-$(awk '$1 == "key_id:" {print $2; exit}' "$asc_config" 2>/dev/null)}
+	issuer_id=${NINEPFS_ASC_ISSUER_ID:-$(awk '$1 == "issuer_id:" {print $2; exit}' "$asc_config" 2>/dev/null)}
+	[[ -n "$key_id" ]] || { echo "notary: no API key id (set NINEPFS_ASC_KEY_ID or NINEPFS_NOTARY_PROFILE)" >&2; return 1; }
+	[[ -n "$issuer_id" ]] || { echo "notary: no API issuer id (set NINEPFS_ASC_ISSUER_ID or NINEPFS_NOTARY_PROFILE)" >&2; return 1; }
+	key_path=${NINEPFS_ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$key_id.p8}
+	[[ -f "$key_path" ]] || { echo "notary: API key file not found: $key_path (set NINEPFS_ASC_KEY_PATH)" >&2; return 1; }
+	notary_args=(--key "$key_path" --key-id "$key_id" --issuer "$issuer_id")
+	echo "API key $key_id (issuer $issuer_id)"
+}
+
+# notary_submit uploads $1 to Apple's notary service, waits for the verdict,
+# and fails with the notary log if it is anything but Accepted. Requires
+# notary_args (see resolve_notary_args). $2 is a directory for the submission
+# log.
+notary_submit() {
+	local artifact=$1 workdir=$2
+	local submit_log status submission_id
+
+	submit_log=$workdir/notarytool-submit.json
+	echo "notary: submitting $(basename "$artifact") (waiting for verdict)"
+	if ! xcrun notarytool submit "$artifact" "${notary_args[@]}" --wait \
+		--output-format json >"$submit_log"; then
+		cat "$submit_log" >&2
+		echo "notary: submit failed" >&2
+		return 1
+	fi
+	# notarytool --output-format json emits a single object:
+	#   {"status":"Accepted","message":"...","id":"<uuid>"}
+	# Pull each value by its own key so field order does not matter.
+	status=$(sed -n 's/.*"status":"\([^"]*\)".*/\1/p' "$submit_log")
+	submission_id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$submit_log")
+	echo "notary: submission $submission_id status=$status"
+	if [[ "$status" != "Accepted" ]]; then
+		echo "notary: fetching log for $submission_id" >&2
+		xcrun notarytool log "$submission_id" "${notary_args[@]}" >&2 || true
+		return 1
+	fi
+}
+
+# staple_and_verify staples the notarization ticket to $1 and confirms
+# Gatekeeper accepts it. $2 is the kind, app or dmg, which selects the
+# assessment: an app is assessed as an install, a disk image as something the
+# user opens. Callers take a zero exit as proof the artifact is notarized and
+# stapled, so this asserts rather than reports.
+staple_and_verify() {
+	local artifact=$1 kind=$2
+	local ok='' assessment
+
+	echo "notary: stapling ticket to $artifact"
+	xcrun stapler staple "$artifact"
+	# stapler staple already validates what it just wrote; a second validate can
+	# fail transiently on CloudKit ticket-lookup timeouts. Retry, then fall back
+	# to Gatekeeper, which reads the stapled ticket offline.
+	for _ in 1 2 3; do
+		if xcrun stapler validate "$artifact" >/dev/null 2>&1; then
+			ok=yes
+			break
+		fi
+	done
+	[[ -n "$ok" ]] || echo "notary: stapler validate flaky (network); relying on Gatekeeper below" >&2
+
+	echo "notary: Gatekeeper assessment"
+	case "$kind" in
+	app) assessment=$(spctl -a -vvv --type install "$artifact" 2>&1 || true) ;;
+	dmg) assessment=$(spctl -a -vvv --type open --context context:primary-signature "$artifact" 2>&1 || true) ;;
+	*) echo "staple_and_verify: unknown kind $kind" >&2; return 1 ;;
+	esac
+	printf '%s\n' "$assessment"
+	case "$assessment" in
+	*"source=Notarized Developer ID"*) ;;
+	*) echo "notary: $artifact is not notarized/stapled" >&2; return 1 ;;
+	esac
+}
+
+# make_dmg builds the drag-install disk image at $2 from the app at $1: the app
+# beside a symlink to /Applications, so opening the image and dragging one onto
+# the other is the whole install. Read-only and compressed (UDZO), which is what
+# a signed and notarized image has to be. ditto rather than cp preserves the
+# symlinks and extended attributes the app's signature covers.
+make_dmg() {
+	local app=$1 dmg=$2
+	local staging
+
+	staging=$(mktemp -d)
+	/usr/bin/ditto "$app" "$staging/$(basename "$app")"
+	ln -s /Applications "$staging/Applications"
+	rm -f "$dmg"
+	hdiutil create -quiet -srcfolder "$staging" -volname 9pfs \
+		-fs HFS+ -format UDZO -imagekey zlib-level=9 "$dmg"
+	rm -rf "$staging"
+}
+
 ninepfs_active_mounts() {
 	mount | awk '$0 ~ /\(9pfs[,)]/ {print $3}'
 }
