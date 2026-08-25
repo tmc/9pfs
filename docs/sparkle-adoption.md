@@ -47,23 +47,63 @@ So the two halves of sparkle-go land differently here:
    apps, which need `mach-lookup` exceptions. The host entitlements already
    carry one for `com.apple.filesystems.fskitd`, so the shape is established.
 
-## The blocking question
+## The blocking question, answered: no
 
-**Does a Sparkle in-place replacement preserve the FSKit extension's
-registration and the user's System Settings toggle?**
+**A Sparkle-style in-place replacement de-registers the FSKit extension, and
+it does not come back.**
 
-The app ships an embedded `NinePFSExtension.appex` that `pluginkit` registers
-and the user enables by hand. If swapping the bundle drops either, every
-update ends with a silently broken mount and a trip to System Settings — worse
-than the manual `.dmg` it replaced. This has to be tested on a real install
-before any of the above is worth writing; it is not answerable from source.
+Sparkle installs with `renamex_np(..., RENAME_SWAP)` (`SUFileManager.m:360`,
+via `SUPlainInstaller.m:244`) and then touches the bundle's mtime to nudge
+LaunchServices. Nothing in Sparkle knows what an appex is; whatever happens is
+emergent from those file operations. So the swap was run directly, on a real
+install, with the extension registered and enabled:
 
-Asked 9C2E (sparkle-go) whether Sparkle has been exercised against a bundle
-with an embedded ExtensionKit extension, and whether the sandboxed installer
-path has been tested at all. Their answer decides whether this proceeds.
+    before   4 plug-ins, `+ dev.tmc.apple.examples.fskit.9pfs.extension` enabled
+    swap     renamex_np RENAME_SWAP → 0; new CDHash in place; notarization and
+             staple intact (`spctl -a` accepted, `codesign --verify --deep
+             --strict` clean)
+    after    3 plug-ins — the 9pfs row is *gone*, not disabled
 
-## Recommendation (provisional)
+The row did not return after any of: three relaunches over ~40 seconds,
+removing the superseded bundle copy, `pluginkit -a` on the appex,
+`lsregister -f -R` on the app, a full move-out-and-copy-back reinstall, or
+`pluginkit -r` followed by restarting `pkd`. The app is intact and correctly
+signed throughout; only the registration is lost.
 
-Take the release-side piece now — signing releases with an EdDSA key costs
-little and is a prerequisite for anything later — and gate the in-app updater
-on the appex-preservation test.
+This is worse than losing the toggle. A user who never touches System Settings
+would go from a working mount to an extension the system does not know exists,
+with no in-app remedy — the host app is sandboxed and cannot run `pluginkit`.
+Restoring it appears to need at least a login cycle.
+
+Two caveats, stated because they bound the claim. The first swap left the
+superseded bundle in `/Applications` briefly, which Sparkle would have
+trashed; removing it changed nothing, so the duplicate was not the cause. And
+this is one machine, one macOS version (26.6.2, build 25G83) — the behaviour
+is FSKit/PlugInKit policy about a CDHash change under a stable path, not
+something Sparkle chooses, so it could differ across releases.
+
+The variant 9C2E asked for — the same swap with a 9p volume actively mounted —
+could not be run: it needs a registered extension, and the experiment consumed
+the only one on this machine.
+
+## Recommendation
+
+Do not adopt in-app Sparkle updates for this bundle layout. The failure is not
+in Sparkle and not in sparkle-go; it is that an FSKit module's registration
+does not survive having its bundle replaced underneath it.
+
+Worth taking anyway, independent of any updater:
+
+  - EdDSA release signing, if an appcast ever becomes useful. On a machine
+    with Xcode, Sparkle's own `sign_update` is as good as
+    `cmd/sparkle-go-appcast` — that command exists to drop the Sparkle CLI
+    dependency from Go CI, which is not a problem this repository has.
+  - `cmd/sparkle-go-verify-bundle`, which is neither Sparkle- nor
+    sparkle-go-specific: it walks any `.app` and reports hardened-runtime and
+    secure-timestamp state for every nested signable, which here means the
+    appex and the `9pdemo` helper. That is a real gap in `verify-local.sh`.
+
+If updates are worth revisiting, the question to answer first is what makes
+FSKit forget a module — because that same behaviour presumably bites a plain
+drag-install upgrade over an existing copy, which is what the download page
+tells people to do.
