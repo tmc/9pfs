@@ -57,6 +57,15 @@ stamp_revision() {
 		/usr/libexec/PlistBuddy -c "Set :NinePFSSourceRevision $revision" "$plist" >/dev/null
 }
 
+# stamp_version sets CFBundleShortVersionString in the Info.plist named by $1 to
+# the version $2, which release.sh derives from the release tag. An empty
+# version leaves the checked-in value alone.
+stamp_version() {
+	local plist=$1 version=$2
+	[[ -n "$version" ]] || return 0
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$plist" >/dev/null
+}
+
 # profile_cert_sha1s prints the lowercase SHA-1 fingerprint of each Developer ID
 # certificate embedded in the provisioning profile named by $1, one per line.
 # The certificates live in the profile's decoded DeveloperCertificates array;

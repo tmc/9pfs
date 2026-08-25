@@ -75,7 +75,8 @@ else
 	# notarization gate, say) does not destroy a release that was already made.
 	rm -rf "$build_dir"
 	mkdir -p "$build_dir"
-	CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes "$dir/build-appex.sh" "$build_dir" >/dev/null
+	CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes NINEPFS_VERSION="${tag#v}" \
+		"$dir/build-appex.sh" "$build_dir" >/dev/null
 	verify_signed_build "$build_dir"
 
 	echo "release: notarizing"

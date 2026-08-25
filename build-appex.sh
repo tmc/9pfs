@@ -40,11 +40,15 @@ product=NinePFSExtension
 host_bundle_id=dev.tmc.apple.examples.fskit.9pfs
 host_product=NinePFSHost
 demo_product=9pdemo
-# The source revision is stamped into the built Info.plists rather than checked
-# in, so a diagnostics paste names the commit the binary came from. A build
+# The version and source revision are stamped into the built Info.plists rather
+# than checked in, so a diagnostics paste names the build it came from. A build
 # from a tarball or a dirty tree says so instead of naming a commit that does
-# not describe what was built.
-source_revision=$(git -C "$dir" describe --always --dirty --match 'v[0-9]*' 2>/dev/null || echo unknown)
+# not describe what was built. --tags is not optional: the release tags are
+# lightweight, and without it describe ignores every one of them.
+source_revision=$(git -C "$dir" describe --tags --always --dirty --match 'v[0-9]*' 2>/dev/null || echo unknown)
+# release.sh sets NINEPFS_VERSION from the release tag. A plain build keeps the
+# checked-in CFBundleShortVersionString, which the revision qualifies anyway.
+version=${NINEPFS_VERSION:-}
 identity=${CODESIGN_IDENTITY:-}
 extension_profile=${NINEPFS_EXTENSION_PROFILE:-}
 host_profile=${NINEPFS_HOST_PROFILE:-}
@@ -316,6 +320,7 @@ xcrun swiftc -O -parse-as-library \
 
 cp "$dir/native/appex/Info.plist" "$contents/Info.plist"
 stamp_revision "$contents/Info.plist" "$source_revision"
+stamp_version "$contents/Info.plist" "$version"
 
 prepare_entitlements "$extension_profile" "$dir/native/appex/NinePFSExtension.entitlements" "$extension_entitlements" extension "$bundle_id"
 if [[ -n "$extension_profile" ]]; then
@@ -345,6 +350,7 @@ xcrun swiftc -O -parse-as-library \
 	-o "$app/Contents/MacOS/$host_product"
 cp "$dir/native/host/Info.plist" "$app/Contents/Info.plist"
 stamp_revision "$app/Contents/Info.plist" "$source_revision"
+stamp_version "$app/Contents/Info.plist" "$version"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
 
 # Ship the demo 9P server beside the app so the mount example has something to
