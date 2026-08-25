@@ -6,10 +6,9 @@ set -euo pipefail
 #   ./test-live.sh [9p2000|9p2000l]   (default: both)
 #
 # Each dialect needs its own server; start_9p_server in scriptlib.sh supplies
-# it. This script's own job is the scratch modfile: TestLive exercises xattr
-# writes, which only the patched p9 client implements, so the test binary has
-# to be compiled against the patched module rather than the one go.mod names.
-# The op matrix lives in live_test.go.
+# it. This script's own job is the scratch modfile, which resolves a relative
+# apple replace so the server and the test compile the same way build-appex.sh
+# does. The op matrix lives in live_test.go.
 
 dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=scriptlib.sh

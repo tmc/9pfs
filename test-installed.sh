@@ -6,7 +6,7 @@ set -euo pipefail
 #   ./test-installed.sh [MOUNTPOINT]        # disposable 9P2000.L server (default)
 #   ./test-installed.sh URL MOUNTPOINT      # mount a server you already run
 #
-# With no URL it starts a disposable patched p9ufs and mounts it; with a URL it
+# With no URL it starts a disposable p9ufs and mounts it; with a URL it
 # mounts that instead. Requires the signed host app installed in /Applications
 # and the extension enabled in System Settings (checked by preflight_installed).
 

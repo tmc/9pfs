@@ -8,7 +8,7 @@
 # results and nothing else.
 
 # scriptlib_dir is the directory holding this library, for helpers that need a
-# repository-relative path (for example the p9 patch).
+# repository-relative path (for example the go.mod a scratch modfile copies).
 scriptlib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 # rewrite_apple_replace prints a go.mod to stdout with any relative

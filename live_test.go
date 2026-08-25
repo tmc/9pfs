@@ -10,9 +10,8 @@ import (
 )
 
 // TestLive exercises a backend against a real 9p server over the loopback.
-// The server is started by test-live.sh, which builds the patched p9ufs,
-// exports a README, and passes the address and dialect through the
-// environment. Without those, the test skips, so plain `go test` stays
+// The server is started by test-live.sh, which builds p9ufs, exports a
+// README, and passes the address and dialect through the environment. Without those, the test skips, so plain `go test` stays
 // offline and fast.
 func TestLive(t *testing.T) {
 	addr := os.Getenv("NINEPFS_LIVE_ADDR")
