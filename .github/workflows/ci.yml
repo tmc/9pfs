@@ -68,6 +68,12 @@ jobs:
           # list as proof its own extension was missing. A build carrying the
           # appex must never say that, whatever the list contains. Requiring the
           # line to be there keeps the check from passing by going silent.
+          # A diagnostics paste is only useful if it names the build it came
+          # from, so an unstamped revision is a build-script failure.
+          if grep -q '^9pfs .*rev unknown' <<<"$out"; then
+            echo "build did not stamp a source revision" >&2
+            exit 1
+          fi
           status=$(sed -n 's/^status: //p' <<<"$out")
           if [ -z "$status" ]; then
             echo "probe printed no status line" >&2

@@ -48,6 +48,15 @@ identity_sha1() {
 		awk '/^SHA-1 hash:/ {print tolower($3); exit}'
 }
 
+# stamp_revision sets NinePFSSourceRevision in the Info.plist named by $1 to the
+# revision $2. The key is added to the built copy, never to the checked-in
+# plist, so the working tree stays revision-free.
+stamp_revision() {
+	local plist=$1 revision=$2
+	/usr/libexec/PlistBuddy -c "Add :NinePFSSourceRevision string $revision" "$plist" >/dev/null 2>&1 ||
+		/usr/libexec/PlistBuddy -c "Set :NinePFSSourceRevision $revision" "$plist" >/dev/null
+}
+
 # profile_cert_sha1s prints the lowercase SHA-1 fingerprint of each Developer ID
 # certificate embedded in the provisioning profile named by $1, one per line.
 # The certificates live in the profile's decoded DeveloperCertificates array;

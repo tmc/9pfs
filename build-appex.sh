@@ -40,6 +40,11 @@ product=NinePFSExtension
 host_bundle_id=dev.tmc.apple.examples.fskit.9pfs
 host_product=NinePFSHost
 demo_product=9pdemo
+# The source revision is stamped into the built Info.plists rather than checked
+# in, so a diagnostics paste names the commit the binary came from. A build
+# from a tarball or a dirty tree says so instead of naming a commit that does
+# not describe what was built.
+source_revision=$(git -C "$dir" describe --always --dirty --match 'v[0-9]*' 2>/dev/null || echo unknown)
 identity=${CODESIGN_IDENTITY:-}
 extension_profile=${NINEPFS_EXTENSION_PROFILE:-}
 host_profile=${NINEPFS_HOST_PROFILE:-}
@@ -316,6 +321,7 @@ xcrun swiftc -O -parse-as-library \
 	-o "$macos/$product"
 
 cp "$dir/native/appex/Info.plist" "$contents/Info.plist"
+stamp_revision "$contents/Info.plist" "$source_revision"
 
 prepare_entitlements "$extension_profile" "$dir/native/appex/NinePFSExtension.entitlements" "$extension_entitlements" extension "$bundle_id"
 if [[ -n "$extension_profile" ]]; then
@@ -344,6 +350,7 @@ xcrun swiftc -O -parse-as-library \
 	"$dir/native/host/App.swift" \
 	-o "$app/Contents/MacOS/$host_product"
 cp "$dir/native/host/Info.plist" "$app/Contents/Info.plist"
+stamp_revision "$app/Contents/Info.plist" "$source_revision"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
 
 # Ship the demo 9P server beside the app so the mount example has something to

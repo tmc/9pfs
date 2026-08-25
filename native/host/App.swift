@@ -68,17 +68,30 @@ final class ModuleList: ObservableObject {
 		return .notInstalled
 	}
 
+	// buildVersion identifies the build a report came from: the marketing
+	// version, the build number, and the source revision the build script
+	// stamped in. A report that names a version says whether a bug is one
+	// already fixed.
+	nonisolated static var buildVersion: String {
+		let info = Bundle.main.infoDictionary
+		let short = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+		let build = info?["CFBundleVersion"] as? String ?? "unknown"
+		let revision = info?["NinePFSSourceRevision"] as? String ?? "unknown"
+		return "\(short) (\(build)) rev \(revision)"
+	}
+
 	// diagnostics is what the Copy Diagnostics button puts on the pasteboard.
-	// A report that pastes this saves a round trip: the macOS version and the
-	// module list together say whether a missing 9pfs row means anything. The
-	// app is sandboxed and cannot run pluginkit, so it names the command
-	// rather than guessing at registration.
+	// A report that pastes this saves a round trip: the build version, the
+	// macOS version, and the module list together say whether a missing 9pfs
+	// row means anything. The app is sandboxed and cannot run pluginkit, so it
+	// names the command rather than guessing at registration.
 	var diagnostics: String {
 		Self.diagnostics(modules: modules, error: error, loaded: loaded)
 	}
 
 	nonisolated static func diagnostics(modules: [Row], error: String?, loaded: Bool) -> String {
-		var lines = ["9pfs \(ProcessInfo.processInfo.operatingSystemVersionString)"]
+		var lines = ["9pfs \(buildVersion)"]
+		lines.append("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
 		lines.append("app: \(Bundle.main.bundleURL.path)")
 		lines.append("bundled extension: \(bundledExtensionURL?.path ?? "missing")")
 		lines.append("status: \(status(modules: modules, loaded: loaded).label)")
