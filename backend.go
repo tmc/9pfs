@@ -606,12 +606,17 @@ func (b *p9LBackend) SetAttr(name string, attr setAttr) (nodeInfo, error) {
 		mask.Size = true
 		set.Size = *attr.Size
 	}
+	// The NotSystemTime bits are what distinguish "set this timestamp" from
+	// "touch to now": 9P2000.L follows utimensat, where a bare ATime or MTime
+	// means the server's clock and the carried seconds are ignored.
 	if attr.Accessed != nil {
 		mask.ATime = true
+		mask.ATimeNotSystemTime = true
 		set.ATimeSeconds = *attr.Accessed
 	}
 	if attr.Modified != nil {
 		mask.MTime = true
+		mask.MTimeNotSystemTime = true
 		set.MTimeSeconds = *attr.Modified
 	}
 	if attr.UID != nil {
