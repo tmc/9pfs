@@ -107,55 +107,22 @@ require_cert_in_profile() {
 	return 1
 }
 
-# prepare_p9_module copies the github.com/hugelgupf/p9 version required by
-# go.mod into $1 and applies p9-9pfs.patch. The patch has two halves and they
-# are not alike:
-#
-#   p9/client_file.go — SetXattr and RemoveXattr, which upstream leaves as
-#     ENOSYS. p9LBackend calls them, so this half is part of the product: a
-#     build without it mounts fine and fails every xattr write. Upstream
-#     already implements the read half (GetXattr, ListXattrs).
-#
-#   fsimpl/localfs/localfs.go — chmod, utimes and statfs, which upstream
-#     either drops silently or leaves unimplemented. localfs serves both the
-#     live test and the bundled 9pdemo, so this half ships too: without the
-#     statfs hunk the demo reports a volume of unknown size.
-#
-# Both are local to the build and change no module dependency, so they ship in
-# binaries whose go.mod advertises stock p9. Retiring either means landing it
-# upstream. scriptlib_dir is the directory holding this library.
-prepare_p9_module() {
-	local dest=${1:?"usage: prepare_p9_module dest"}
-	local src
-	# Download first: a fresh checkout has no module cache, and go list alone
-	# reports an empty directory for a module that has not been fetched.
-	src=$(cd "$scriptlib_dir" && GOWORK=off go mod download github.com/hugelgupf/p9 &&
-		GOWORK=off go list -m -f '{{.Dir}}' github.com/hugelgupf/p9)
-	if [[ -z "$src" ]]; then
-		echo "prepare_p9_module: cannot locate github.com/hugelgupf/p9" >&2
-		return 1
-	fi
-	rm -rf "$dest"
-	mkdir -p "$dest"
-	cp -R "$src/." "$dest/"
-	chmod -R u+w "$dest"
-	patch -d "$dest" -p1 < "$scriptlib_dir/p9-9pfs.patch"
-}
-
 export9p_version=v1.18.0
 
 # start_9p_server starts a disposable 9p server exporting ROOT on the loopback
 # and waits until it accepts connections. DIALECT picks the server: 9p2000 uses
-# knusbaum/go9p's export9p, 9p2000.L uses the p9ufs built from the patched p9
-# source in P9SRC (see prepare_p9_module). WORKDIR holds the built binaries and
-# the server log. On success the address is in $server_addr and the process id
-# in $server_pid, which the caller kills.
+# knusbaum/go9p's export9p, 9p2000.L uses p9ufs, built from the p9 the
+# repository's go.mod resolves — the fork the extension itself links, so the
+# server and the client under test agree about chmod, utimes and xattrs.
+# WORKDIR holds the built binaries and the server log. MODFILE, if given, is the
+# scratch go.mod the caller built for the same purpose. On success the address
+# is in $server_addr and the process id in $server_pid, which the caller kills.
 #
 # The port is random and the launch is retried: two servers started in the same
 # second can pick the same port, and the loser dies at bind time, which is
 # indistinguishable from a readiness timeout unless the launch is retried.
 start_9p_server() {
-	local dialect=$1 root=$2 workdir=$3 p9src=${4:-}
+	local dialect=$1 root=$2 workdir=$3 modfile=${4:-}
 	local bin log port moddir
 
 	case "$dialect" in
@@ -175,12 +142,10 @@ start_9p_server() {
 		fi
 		;;
 	9p2000l)
-		[[ -n "$p9src" ]] || {
-			echo "start_9p_server: 9p2000l needs a prepared p9 source" >&2
-			return 1
-		}
 		bin=$workdir/p9ufs
-		[[ -x "$bin" ]] || (cd "$p9src" && GOWORK=off go build -o "$bin" ./cmd/p9ufs)
+		[[ -x "$bin" ]] || (cd "$scriptlib_dir" && GOWORK=off \
+			GOFLAGS=${modfile:+-modfile=$modfile} \
+			go build -o "$bin" github.com/hugelgupf/p9/cmd/p9ufs)
 		;;
 	*)
 		echo "start_9p_server: unknown dialect $dialect" >&2

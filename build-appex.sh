@@ -264,15 +264,13 @@ codesign_tool() {
 
 # Build the Go filesystem operations as a c-archive. The cshared build tag
 # exports NinePFSInit/NinePFSConfigureFileSystem/NinePFS*Resource for the Swift
-# entrypoint to call. A throwaway module file lets the build resolve the local
-# apple module and the patched p9 client without a checked-in replace.
-p9src=$objdir/p9-src
+# entrypoint to call. A throwaway module file lets the build resolve a local
+# apple module without a checked-in replace.
 moddir=$objdir/mod
 modfile=$moddir/go.mod
 go_archive=$objdir/libNinePFS.a
 mkdir -p "$moddir"
 
-prepare_p9_module "$p9src"
 # Carry go.mod through verbatim, but resolve any relative apple replace target
 # to an absolute path: the temp modfile lives in a scratch dir where a relative
 # "../.." would no longer point at the monorepo. A pinned require (no replace,
@@ -280,10 +278,6 @@ prepare_p9_module "$p9src"
 # untouched.
 rewrite_apple_replace "$dir/go.mod" > "$modfile"
 cp "$dir/go.sum" "${modfile%.mod}.sum"
-{
-	echo
-	echo "replace github.com/hugelgupf/p9 => $p9src"
-} >> "$modfile"
 
 deploy_target=${MACOSX_DEPLOYMENT_TARGET:-15.4}
 (cd "$dir" && GOWORK=off GOFLAGS="-modfile=$modfile" \
@@ -354,7 +348,7 @@ stamp_revision "$app/Contents/Info.plist" "$source_revision"
 cp -R "$bundle" "$app/Contents/Extensions/$product.appex"
 
 # Ship the demo 9P server beside the app so the mount example has something to
-# mount. It builds against the same patched p9 as the extension, so the
+# mount. It builds against the same p9 as the extension, so the
 # operations the README claims work are the ones the demo actually serves.
 (cd "$dir" && GOWORK=off GOFLAGS="-modfile=$modfile" \
 	MACOSX_DEPLOYMENT_TARGET="$deploy_target" \

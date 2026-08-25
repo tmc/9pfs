@@ -239,20 +239,25 @@ loading the module needs a signature carrying
 `com.apple.developer.fskit.fsmodule`, and enabling it needs the System Settings
 toggle, which no hosted runner can click. Mounting stays a local check.
 
-**The p9 patch.** `test-live.sh` and `build-appex.sh` patch a temporary copy of
-`github.com/hugelgupf/p9` (`prepare_p9_module` in `scriptlib.sh`). The two
-halves of `p9-9pfs.patch` differ in reach:
+**The p9 fork.** `go.mod` replaces `github.com/hugelgupf/p9` with
+`github.com/tmc/p9`, which is three open upstream pull requests merged onto the
+pinned upstream revision:
 
-  - `p9/client_file.go` adds `SetXattr` and `RemoveXattr`, which upstream
-    returns `ENOSYS` for. `p9LBackend` calls them, so this half **ships**: a
-    build without it mounts normally and fails every extended-attribute write.
-    The read half (`GetXattr`, `ListXattrs`) is already upstream.
-  - `fsimpl/localfs/localfs.go` teaches the `p9ufs` test server chmod and
-    utimes, which it otherwise accepts and drops. Test-only.
+  - [#110](https://github.com/hugelgupf/p9/pull/110) adds `SetXattr` and
+    `RemoveXattr` to the client, which upstream returns `ENOSYS` for.
+    `p9LBackend` calls them, so this half **ships**: a build without it mounts
+    normally and fails every extended-attribute write. The read half
+    (`GetXattr`, `ListXattrs`) is already upstream.
+  - [#111](https://github.com/hugelgupf/p9/pull/111) teaches `fsimpl/localfs`
+    the `SetAttr` fields it otherwise accepts and drops, chmod and utimes among
+    them.
+  - [#112](https://github.com/hugelgupf/p9/pull/112) implements `StatFS` for
+    `fsimpl/localfs`, which `templatefs` leaves unimplemented. `localfs` serves
+    the live test and the bundled `9pdemo`.
 
-Neither changes a module dependency, which is the uncomfortable part: the
-shipped extension contains p9 code that `go.mod` does not describe. The fix is
-upstreaming the client half, not carrying the patch better.
+The replace is the whole mechanism — `go.sum` covers the fork, and the build
+scripts resolve p9 the ordinary way. It comes out once both land upstream and a
+release carries all three.
 
 </details>
 

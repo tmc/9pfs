@@ -60,9 +60,7 @@ else
 	test "$(stat -f '%g' "$root/owned.txt")" = "$owner_gid" ||
 		die "export file did not take group $owner_gid"
 
-	p9src=$tmp/p9-src
-	prepare_p9_module "$p9src"
-	start_9p_server 9p2000l "$root" "$tmp" "$p9src" || die "no disposable server"
+	start_9p_server 9p2000l "$root" "$tmp" || die "no disposable server"
 	url="ninep://$server_addr?dialect=9p2000l"
 fi
 

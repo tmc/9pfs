@@ -29,21 +29,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Patched p9 module + scratch modfile so the .L server and the test compile
-# against the local chmod/mtime/xattr patch.
-p9src=$tmp/p9-src
+# Scratch modfile so the .L server and the test compile against the same p9 the
+# extension links, with any relative apple replace resolved.
 modfile=$tmp/go.mod
-prepare_p9_module "$p9src"
 rewrite_apple_replace "$dir/go.mod" >"$modfile"
 cp "$dir/go.sum" "${modfile%.mod}.sum"
-printf '\nreplace github.com/hugelgupf/p9 => %s\n' "$p9src" >>"$modfile"
 
 for dialect in "${dialects[@]}"; do
 	root=$tmp/export-$dialect
 	mkdir -p "$root"
 	printf 'hello from live 9p\n' >"$root/README"
 
-	start_9p_server "$dialect" "$root" "$tmp" "$p9src"
+	start_9p_server "$dialect" "$root" "$tmp" "$modfile"
 
 	status=0
 	# The export path lets the test change a file behind the server's back,
