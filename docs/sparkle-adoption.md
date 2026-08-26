@@ -47,50 +47,52 @@ So the two halves of sparkle-go land differently here:
    apps, which need `mach-lookup` exceptions. The host entitlements already
    carry one for `com.apple.filesystems.fskitd`, so the shape is established.
 
-## The blocking question, answered: no
+## The blocking question: still open
 
-**A Sparkle-style in-place replacement de-registers the FSKit extension, and
-it does not come back.**
+An earlier revision of this document concluded that a Sparkle-style in-place
+replacement de-registers the FSKit extension permanently. **That was wrong, and
+the retraction matters more than the original claim.**
 
-Sparkle installs with `renamex_np(..., RENAME_SWAP)` (`SUFileManager.m:360`,
-via `SUPlainInstaller.m:244`) and then touches the bundle's mtime to nudge
-LaunchServices. Nothing in Sparkle knows what an appex is; whatever happens is
-emergent from those file operations. So the swap was run directly, on a real
-install, with the extension registered and enabled:
+What was run: Sparkle's install mechanically — `renamex_np(..., RENAME_SWAP)`
+(`SUFileManager.m:360`, via `SUPlainInstaller.m:244`) plus the mtime touch —
+against a real install with the extension registered and enabled. Afterwards
+`pluginkit` listed three fsmodules instead of four, and nothing recovered it:
+not relaunching, not removing the superseded bundle, not `pluginkit -a`, not
+`lsregister -f -R`, not a full reinstall from the notarized `.dmg`, not a
+reboot.
 
-    before   4 plug-ins, `+ dev.tmc.apple.examples.fskit.9pfs.extension` enabled
-    swap     renamex_np RENAME_SWAP → 0; new CDHash in place; notarization and
-             staple intact (`spctl -a` accepted, `codesign --verify --deep
-             --strict` clean)
-    after    3 plug-ins — the 9pfs row is *gone*, not disabled
+The cause was not the swap. The bundle being swapped in was v0.1.7, which
+numbered itself `0.1.7` where every earlier build carried `1.0`. PlugInKit keeps
+one record per extension bundle id and prefers the highest version; this machine
+held a stale `1.0` record for a long-deleted app, that record won, its URL did
+not resolve, and PlugInKit dropped the extension rather than falling back. The
+`pkd` log said so on every discovery pass:
 
-The row did not return after any of: three relaunches over ~40 seconds,
-removing the superseded bundle copy, `pluginkit -a` on the appex,
-`lsregister -f -R` on the app, a full move-out-and-copy-back reinstall, or
-`pluginkit -r` followed by restarting `pkd`. The app is intact and correctly
-signed throughout; only the registration is lost.
+    pkd: (LaunchServices) could not resolve URL while initializing a bundle record!
+    pkd: (PlugInKitDaemon) [discovery] Final plugin count: 3
 
-This is worse than losing the toggle. A user who never touches System Settings
-would go from a working mount to an extension the system does not know exists,
-with no in-app remedy — the host app is sandboxed and cannot run `pluginkit`.
-Restoring it appears to need at least a login cycle.
+Installing a build numbered `2.0` restored registration in under ten seconds,
+enabled, with the mount test passing end to end. See `version_floor` in
+`scriptlib.sh`.
 
-Two caveats, stated because they bound the claim. The first swap left the
-superseded bundle in `/Applications` briefly, which Sparkle would have
-trashed; removing it changed nothing, so the duplicate was not the cause. And
-this is one machine, one macOS version (26.6.2, build 25G83) — the behaviour
-is FSKit/PlugInKit policy about a CDHash change under a stable path, not
-something Sparkle chooses, so it could differ across releases.
-
-The variant 9C2E asked for — the same swap with a 9p volume actively mounted —
-could not be run: it needs a registered extension, and the experiment consumed
-the only one on this machine.
+So the swap is unconvicted. It has not been shown to preserve registration
+either — the experiment that would show it never ran against a correctly
+numbered build. Whoever picks this up should rerun it: swap a build whose
+version is above every stale record, and watch `pluginkit`. Only then does the
+appex question have an answer.
 
 ## Recommendation
 
-Do not adopt in-app Sparkle updates for this bundle layout. The failure is not
-in Sparkle and not in sparkle-go; it is that an FSKit module's registration
-does not survive having its bundle replaced underneath it.
+Unchanged in outcome, changed in reasoning: do not adopt in-app Sparkle updates
+yet, but for want of evidence rather than because of it.
+
+What the episode did establish is a real hazard for any updater that replaces
+this bundle: the app's version number is load-bearing. An update that lowers it,
+or a stale record that outranks it, does not degrade gracefully — the file
+system disappears from System Settings with no in-app remedy, because the host
+app is sandboxed and cannot run `pluginkit`. An updater would have to guarantee
+monotonic versions and clean up superseded copies. Sparkle does trash the old
+bundle; whether that is sufficient is exactly what the rerun would tell us.
 
 Worth taking anyway, independent of any updater:
 
