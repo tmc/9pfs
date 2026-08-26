@@ -19,8 +19,11 @@ Extensions. That toggle is the one interactive step macOS requires of any
 third-party file system. The app shows the extension's live status, so you can
 see the toggle take effect.
 
-> Upgrading over an existing install can switch that toggle back off. If a mount
-> fails right after replacing the app, check there first.
+> Delete the old copy before installing a new one, and empty it from the Trash.
+> A copy that lingers keeps its registration, and PlugInKit hands the extension
+> bundle id to whichever record has the highest version — which can be the old
+> one. See **If the app cannot read its status, or a mount fails** below for
+> what that looks like.
 
 The release also carries a `.zip` of the same stapled app for scripted installs.
 Extract it with `ditto -x -k`, never a double-click unarchiver — one that drops
@@ -28,6 +31,50 @@ symlinks or permissions breaks the signature, and a broken signature is the
 usual cause of the app not being able to read its own status.
 
 [releases]: https://github.com/tmc/9pfs/releases
+
+## Uninstall
+
+Unmount anything still mounted, then delete the app. The extension is inside the
+bundle, so it goes with it — there is nothing installed system-wide to chase.
+
+```sh
+mount | awk '$0 ~ /9pfs/ {print $3}' | xargs -I{} umount {}
+rm -rf /Applications/NinePFSHost.app
+```
+
+Deleting the app does not immediately retire what the system already recorded:
+the row can linger in System Settings > General > Login Items & Extensions until
+you log out and back in, or reboot. That stale row is cosmetic, not a leftover
+install. Confirm with:
+
+```sh
+pluginkit -mAvvv -p com.apple.fskit.fsmodule
+```
+
+No `dev.tmc.apple.examples.fskit.9pfs.extension` line means it is gone. The
+`pluginkit` line above also prints the path of whichever copy is registered, so
+if one survives a login cycle, that path names the copy keeping it alive —
+usually a spare in `~/Downloads` or one sitting in the Trash. To sweep for
+copies:
+
+```sh
+find /Applications ~/Downloads ~/Desktop ~/.Trash -maxdepth 2 -name NinePFSHost.app
+```
+
+`mdfind -name NinePFSHost.app` is the shorter spelling but not a reliable one:
+Spotlight does not always have a freshly copied bundle indexed, and it answers
+with nothing rather than saying so.
+
+Delete those too. What remains outside the bundle is the pair of sandbox
+containers macOS creates on first run, and the extension's log if a mount ever
+ran. Neither reinstalls anything or keeps the extension registered, so removing
+them is optional:
+
+```sh
+rm -rf ~/Library/Containers/dev.tmc.apple.examples.fskit.9pfs \
+       ~/Library/Containers/dev.tmc.apple.examples.fskit.9pfs.extension
+rm -f /tmp/9pfs-extension.log
+```
 
 ## Mount
 
