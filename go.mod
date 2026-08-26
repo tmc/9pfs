@@ -27,4 +27,4 @@ require (
 //	  size. localfs serves the live test and the bundled 9pdemo.
 //
 // Drop this replace once all three land upstream and a release carries them.
-replace github.com/hugelgupf/p9 => github.com/tmc/p9 v0.0.0-20260825174323-5a2bb722a84f
+replace github.com/hugelgupf/p9 => github.com/tmc/p9 v0.0.0-20260826220913-8b2da0c94980
