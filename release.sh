@@ -39,6 +39,22 @@ publish_only=${NINEPFS_PUBLISH_ONLY:-}
 
 die() { echo "release: $*" >&2; exit 1; }
 
+# bundle_version_for_tag prints the CFBundleShortVersionString for release tag
+# $1. The two are deliberately not the same string: releases are tagged v0.x,
+# but every 9pfs through v0.1.6 shipped a bundle version of 1.0, and PlugInKit
+# resolves a duplicate extension bundle id by preferring the higher version (see
+# version_floor in scriptlib.sh). A v0.x tag stamped literally would therefore
+# lose to a record left behind by any older install, so a v0 tag maps onto the
+# 1.x line -- v0.1.8 becomes 1.1.8 -- which keeps rising with the tag while
+# staying above the floor. A tag that is already 1.0 or above is used as-is.
+bundle_version_for_tag() {
+	local version=${1#v}
+	case "$version" in
+	0.*) printf '1.%s\n' "${version#0.}" ;;
+	*) printf '%s\n' "$version" ;;
+	esac
+}
+
 # install_notes are the same for every release: how to install the artifacts.
 # NINEPFS_RELEASE_NOTES, if set, is appended below them to say what changed.
 install_notes="Notarized Developer ID build of the 9pfs FSKit file system. Open the disk image and drag NinePFSHost.app to Applications, open it once to register the extension, enable 9pfs in System Settings > General > Login Items & Extensions > File System Extensions, then mount with /sbin/mount -F -t 9pfs. See README for details."
@@ -75,7 +91,7 @@ else
 	# notarization gate, say) does not destroy a release that was already made.
 	rm -rf "$build_dir"
 	mkdir -p "$build_dir"
-	CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes NINEPFS_VERSION="${tag#v}" \
+	CODESIGN_IDENTITY="$identity" NINEPFS_DEVID=yes NINEPFS_VERSION="$(bundle_version_for_tag "$tag")" \
 		"$dir/build-appex.sh" "$build_dir" >/dev/null
 	verify_signed_build "$build_dir"
 

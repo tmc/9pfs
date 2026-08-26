@@ -199,7 +199,24 @@ pluginkit -mAvvv -p com.apple.fskit.fsmodule
 ```
 
 A leading `+` on `dev.tmc.apple.examples.fskit.9pfs.extension` means registered
-and enabled. The path printed under it is the copy macOS registered; if that is
+and enabled.
+
+No line at all is a different problem, and neither reinstalling nor rebooting
+fixes it. PlugInKit keeps one record per extension bundle id, picks the
+highest-versioned one, and breaks ties by registration timestamp. If a record
+from an older copy wins — one in the Trash, a second copy in `~/Downloads`, or
+an app long deleted whose record outlived it — PlugInKit resolves that record's
+URL, finds nothing at the end of it, and drops the extension entirely rather
+than falling back to the copy that does exist. The log names it:
+
+```sh
+log show --last 5m --predicate 'process == "pkd"' | grep "could not resolve URL"
+```
+
+The cure is to outrank the stale record, not to reinstall: install a build whose
+version is higher than the one holding the registration, or find and delete the
+copy that owns it. `version_floor` in `scriptlib.sh` keeps releases above the
+1.0 that every build before v0.1.7 carried, which is what makes them win. The path printed under it is the copy macOS registered; if that is
 not the copy you have been opening, delete the others and open
 `/Applications/NinePFSHost.app` again — only one copy wins.
 

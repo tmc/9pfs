@@ -57,12 +57,34 @@ stamp_revision() {
 		/usr/libexec/PlistBuddy -c "Set :NinePFSSourceRevision $revision" "$plist" >/dev/null
 }
 
+# version_floor is the lowest CFBundleShortVersionString a build may carry.
+#
+# It exists because PlugInKit picks the highest-versioned record for an
+# extension bundle id and only breaks ties by registration timestamp. Every
+# 9pfs before v0.1.7 shipped the checked-in 1.0, so a build numbered below that
+# loses to any record left behind by an older copy -- a stale one in the Trash,
+# a second copy in ~/Downloads, an app deleted while its record survived. The
+# loser is not merely outranked: PlugInKit resolves the winning record's URL,
+# finds nothing there, and drops the extension entirely, which reads to the user
+# as the file system vanishing from System Settings with no way back. v0.1.7
+# shipped 0.1.7 and did exactly that.
+version_floor=1.0
+
 # stamp_version sets CFBundleShortVersionString in the Info.plist named by $1 to
 # the version $2, which release.sh derives from the release tag. An empty
-# version leaves the checked-in value alone.
+# version leaves the checked-in value alone. A version below version_floor is
+# refused, because the resulting build would be unregisterable on any machine
+# that has seen an older 9pfs.
 stamp_version() {
 	local plist=$1 version=$2
 	[[ -n "$version" ]] || return 0
+	if [[ "$(printf '%s\n%s\n' "$version_floor" "$version" | sort -V | head -1)" != "$version_floor" ||
+		"$version" == "$version_floor" ]]; then
+		echo "stamp_version: version $version is not above $version_floor" >&2
+		echo "stamp_version: PlugInKit would prefer a stale record from an older" >&2
+		echo "  install and drop the extension; tag the release above $version_floor" >&2
+		return 1
+	fi
 	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$plist" >/dev/null
 }
 
