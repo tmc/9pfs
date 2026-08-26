@@ -63,14 +63,6 @@ func ensureServer(existingFSClass objc.Class, impl *ninepFileSystem) (*fskitbrid
 	return srv, nil
 }
 
-// currentServer returns the bridge server, or nil before ensureServer
-// succeeds.
-func currentServer() *fskitbridge.Server {
-	serverMu.Lock()
-	defer serverMu.Unlock()
-	return server
-}
-
 // ninepFileSystem serves a 9p server as an FSKit unary file system. The
 // backend is dialed on the first load unless one was provided directly.
 type ninepFileSystem struct {
@@ -872,7 +864,8 @@ func openBridgeLogs() {
 }
 
 // defaultFSConfigFromEnv reads the mount defaults from NINEPFS_* environment
-// variables, falling back to a classic 9P2000 server on the default port.
+// variables, falling back to a classic 9P2000 server on the default port. The
+// cshared entrypoint uses it for a load that carries no resource.
 func defaultFSConfigFromEnv() fsConfig {
 	return fsConfig{
 		dialect: envOr("NINEPFS_DIALECT", "9p2000"),
